@@ -1,0 +1,4 @@
+OCO_AI_PROVIDER=ollama
+OCO_EMOJI=false
+OCO_LANGUAGE=en
+OCO_PROMPT_MODULE=conventional-commit
