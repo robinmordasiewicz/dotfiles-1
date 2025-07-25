@@ -246,7 +246,7 @@ fi
 echo "   Installing Oh My Posh..."
 curl -s https://ohmyposh.dev/install.sh | bash -s -- -d ~/.local/bin -t ~/.oh-my-posh/themes
 echo "   Installing Meslo font (non-interactive)..."
-~/.local/bin/oh-my-posh font install Meslo --user
+~/.local/bin/oh-my-posh font install Meslo || echo "     Font installation failed or already installed"
 echo "   Copying powerlevel10k theme..."
 cp powerlevel10k.omp.json ~/.oh-my-posh/themes/powerlevel10k.omp.json
 
