@@ -5,6 +5,17 @@
       "url": "https://api.githubcopilot.com/mcp/",
       "gallery": true
     },
+    "memory": {
+        "command": "docker",
+        "args": [
+          "run",
+          "-i",
+          "-v",
+          "claude-memory:/app/dist",
+          "--rm",
+          "mcp/memory"
+        ]
+    },
     "kubernetes": {
       "type": "stdio",
       "command": "npx",
