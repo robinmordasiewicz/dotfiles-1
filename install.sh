@@ -10,11 +10,14 @@ cp .vimrc ~/
 cp .opencommit ~/
 cp .act ~/
 cp .tmux.conf ~/
+cp .p10k.zsh ~/
+cp .digrc ~/
 
-if ! [ -d ~/.continue ]; then
-  mkdir -p ~/.continue
-fi
-cp .continue/config.json ~/.continue
+
+#if ! [ -d ~/.continue ]; then
+#  mkdir -p ~/.continue
+#fi
+#cp .continue/config.json ~/.continue
 
 if ! [ -d ~/.tmux/plugins ]; then
   mkdir -p ~/.tmux/plugins
@@ -189,14 +192,24 @@ if [ -n "${AZUREPS_HOST_ENVIRONMENT}" ]; then
   cp Microsoft.PowerShell_profile.ps1 ~/.config/PowerShell/Microsoft.PowerShell_profile.ps1
 else
   if command -v az &>/dev/null; then
-    yes y | az config set auto-upgrade.enable=yes
-    yes y | az config set auto-upgrade.prompt=no
+    az config set auto-upgrade.enable=yes
+    az config set auto-upgrade.prompt=no
   fi
   if ! [ -d ~/.config/powershell/ ]; then
     mkdir -p ~/.config/powershell
   fi
   cp Microsoft.PowerShell_profile.ps1 ~/.config/powershell/Microsoft.PowerShell_profile.ps1
 fi
+
+if ! [ -d ~/.tfenv ]; then
+  git clone --depth=1 https://github.com/tfutils/tfenv.git ~/.tfenv
+else
+  cd ~/.tfenv
+  git pull
+fi
+~/.tfenv/bin/tfenv init
+~/.tfenv/bin/tfenv install
+~/.tfenv/bin/tfenv use
 
 #if command -v pwsh &> /dev/null; then
 #  pwsh -NoProfile -NonInteractive -Command "Install-Module -Name Terminal-Icons -Repository PSGallery -AllowClobber -Force" || continue
