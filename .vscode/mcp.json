@@ -5,6 +5,26 @@
       "url": "https://api.githubcopilot.com/mcp/",
       "gallery": true
     },
+    "git": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--mount", "type=bind,src=${workspaceFolder},dst=/workspace",
+        "mcp/git"
+      ]
+    },
+    "time": {
+      "command": "docker",
+      "args": [
+          "run",
+          "-i",
+          "-v",
+          "mcp/time",
+          "--rm"
+      ]
+    },
     "memory": {
         "command": "docker",
         "args": [
@@ -15,6 +35,26 @@
           "--rm",
           "mcp/memory"
         ]
+    },
+    "sequential-thinking": {
+       "command": "docker",
+       "args": [
+         "run",
+         "--rm",
+         "-i",
+         "mcp/sequentialthinking"
+       ]
+     },
+    "filesystem": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--mount", "type=bind,src=${workspaceFolder},dst=/projects/workspace",
+        "mcp/filesystem",
+        "/projects"
+      ]
     },
     "kubernetes": {
       "type": "stdio",
