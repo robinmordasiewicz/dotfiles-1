@@ -19,10 +19,9 @@
       "command": "docker",
       "args": [
           "run",
+          "--rm",
           "-i",
-          "-v",
-          "mcp/time",
-          "--rm"
+          "mcp/time"
       ]
     },
     "memory": {
@@ -83,12 +82,15 @@
     },
     "azure": {
       "type": "stdio",
-      "command": "npx",
+      "command": "docker",
       "args": [
-        "-y",
-        "@azure/mcp@latest",
-        "server",
-        "start"
+        "run",
+        "-i",
+        "--rm",
+        "node:20-bookworm",
+        "sh",
+        "-c",
+        "apt-get update && apt-get install -y libicu-dev && npx -y @azure/mcp@latest server start"
       ],
       "gallery": true
     },
