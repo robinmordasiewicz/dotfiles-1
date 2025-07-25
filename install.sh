@@ -249,6 +249,7 @@ echo "   Installing Meslo font (non-interactive)..."
 ~/.local/bin/oh-my-posh font install Meslo || echo "     Font installation failed or already installed"
 echo "   Copying powerlevel10k theme..."
 cp powerlevel10k.omp.json ~/.oh-my-posh/themes/powerlevel10k.omp.json
+oh-my-posh disable notice
 
 echo "   Configuring Oh My Posh in shell configurations..."
 # shellcheck disable=SC2016
