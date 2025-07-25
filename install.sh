@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-#
-# This is a dotfiles installer file
-
-set -e
 
 DOTFILEDIR="$(pwd)"
+
+# Ensure $HOME/.local/bin is in PATH in ~/.zshrc
+if grep -q '^export PATH=.*\.local/bin' ~/.zshrc; then
+  # If export exists but doesn't include .local/bin, update it
+  if ! grep -q 'export PATH=.*\$HOME/.local/bin' ~/.zshrc; then
+    sed -i '' 's|^export PATH=|export PATH=\$HOME/.local/bin:|' ~/.zshrc
+  fi
+else
+  # Prepend export if not present
+  sed -i '' "1s|^|export PATH=\$HOME/.local/bin:\$PATH\n|" ~/.zshrc
+fi
+
 
 echo "📂 Starting dotfiles installation..."
 echo "🏠 Working directory: ${DOTFILEDIR}"
@@ -318,7 +326,7 @@ if ! [ -d ~/.tfenv ]; then
   git clone --depth=1 https://github.com/tfutils/tfenv.git ~/.tfenv
 else
   echo "   Updating tfenv..."
-  cd ~/.tfenv
+  cd ~/.tfenv || exit
   git pull --quiet 2>&1
 fi
 echo "   Initializing tfenv..."
@@ -333,8 +341,6 @@ echo "✅ Terraform version manager set up successfully"
 #  pwsh -NoProfile -NonInteractive -Command "Install-Module -Name Terminal-Icons -Repository PSGallery -AllowClobber -Force" || continue
 #  pwsh -NoProfile -NonInteractive -Command "Install-Module -Name z -Repository PSGallery -AllowClobber -Force" || continue
 #fi
-
-#sed -i '' "1s|^|export PATH=\$HOME/.local/bin:\$PATH\n|" ~/.zshrc
 
 echo "🎉 Dotfiles installation completed successfully!"
 echo "💡 Please restart your terminal or run 'source ~/.zshrc' to apply all changes."
