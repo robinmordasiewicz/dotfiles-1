@@ -2,16 +2,17 @@
 
 DOTFILEDIR="$(pwd)"
 
-# Ensure $HOME/.local/bin is in PATH in ~/.zshrc
-if grep -q '^export PATH=.*\.local/bin' ~/.zshrc; then
-  # If export exists but doesn't include .local/bin, update it
-  if ! grep -q 'export PATH=.*\$HOME/.local/bin' ~/.zshrc; then
-    sed -i '' 's|^export PATH=|export PATH=\$HOME/.local/bin:|' ~/.zshrc
+# Ensure $HOME/.local/bin is in PATH in ~/.zshrc and ~/.bashrc (append if not present)
+for shellrc in ~/.zshrc ~/.bashrc; do
+  if [ -f "$shellrc" ]; then
+    # Use expanded home directory
+    localbin="$HOME/.local/bin"
+    # Check if the export line with the correct path already exists
+    if ! grep -q "export PATH=\$PATH:$localbin" "$shellrc" && ! grep -q "$localbin" <<< "$PATH"; then
+      echo "export PATH=\$PATH:$localbin" >> "$shellrc"
+    fi
   fi
-else
-  # Prepend export if not present
-  sed -i '' "1s|^|export PATH=\$HOME/.local/bin:\$PATH\n|" ~/.zshrc
-fi
+done
 
 
 echo "📂 Starting dotfiles installation..."
@@ -66,7 +67,7 @@ if ! [ -d ~/.vim/pack/plugin/start/vim-airline ]; then
   git clone https://github.com/vim-airline/vim-airline ~/.vim/pack/plugin/start/vim-airline
 else
   echo "     Updating vim-airline..."
-  cd ~/.vim/pack/plugin/start/vim-airline
+  cd ~/.vim/pack/plugin/start/vim-airline || exit
   git pull --quiet 2>&1
 fi
 
