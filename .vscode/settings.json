@@ -36,7 +36,6 @@
   "workbench.welcomePage.enabled": false,
   "files.autoSave": "onWindowChange",
   "extensions.ignoreRecommendations": false,
-  "extensions.showRecommendationsOnlyOnDemand": false,
   "extensions.autoUpdate": true,
   "update.showReleaseNotes": false,
   "files.eol": "\n",
