@@ -42,7 +42,7 @@ if ! [ -d ~/.tmux/plugins/tpm ]; then
   git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 else
   echo "   Updating tmux plugin manager (tpm)..."
-  cd ~/.tmux/plugins/tpm && git pull --quiet
+  cd ~/.tmux/plugins/tpm && git pull --quiet 2>&1
 fi
 echo "✅ Tmux plugins set up successfully"
 
@@ -59,7 +59,7 @@ if ! [ -d ~/.vim/pack/plugin/start/vim-airline ]; then
 else
   echo "     Updating vim-airline..."
   cd ~/.vim/pack/plugin/start/vim-airline
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Setting up nerdtree plugin..."
@@ -69,7 +69,7 @@ if ! [ -d ~/.vim/pack/plugin/start/nerdtree ]; then
 else
   echo "     Updating nerdtree..."
   cd ~/.vim/pack/plugin/start/nerdtree
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Setting up fzf plugin..."
@@ -79,7 +79,7 @@ if ! [ -d ~/.vim/pack/plugin/start/fzf ]; then
 else
   echo "     Updating fzf..."
   cd ~/.vim/pack/plugin/start/fzf
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Setting up vim-gitgutter plugin..."
@@ -89,7 +89,7 @@ if ! [ -d ~/.vim/pack/plugin/start/vim-gitgutter ]; then
 else
   echo "     Updating vim-gitgutter..."
   cd ~/.vim/pack/plugin/start/vim-gitgutter
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Setting up vim-fugitive plugin..."
@@ -99,7 +99,7 @@ if ! [ -d ~/.vim/pack/plugin/start/vim-fugitive ]; then
 else
   echo "     Updating vim-fugitive..."
   cd ~/.vim/pack/plugin/start/vim-fugitive
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Setting up vim-polyglot plugin..."
@@ -109,7 +109,7 @@ if ! [ -d ~/.vim/pack/plugin/start/vim-polyglot ]; then
 else
   echo "     Updating vim-polyglot..."
   cd ~/.vim/pack/plugin/start/vim-polyglot
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Setting up vim-terraform plugin..."
@@ -119,7 +119,7 @@ if ! [ -d ~/.vim/pack/plugin/start/vim-terraform ]; then
 else
   echo "     Updating vim-terraform..."
   cd ~/.vim/pack/plugin/start/vim-terraform
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Setting up Vim themes..."
@@ -135,7 +135,7 @@ if ! [ -d ~/.vim/pack/themes/start/vim-code-dark ]; then
 else
   echo "     Updating vim-code-dark theme..."
   cd ~/.vim/pack/themes/start/vim-code-dark || return
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 echo "✅ Vim plugins and themes set up successfully"
 
@@ -176,7 +176,7 @@ if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions ]; then
 else
   echo "       Updating zsh-autosuggestions..."
   cd ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "     Setting up zsh-syntax-highlighting..."
@@ -186,7 +186,7 @@ if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting ]; then
 else
   echo "       Updating zsh-syntax-highlighting..."
   cd ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "     Setting up conda-zsh-completion..."
@@ -196,7 +196,7 @@ if ! [ -d ~/.oh-my-zsh/custom/plugins/conda-zsh-completion ]; then
 else
   echo "       Updating conda-zsh-completion..."
   cd ~/.oh-my-zsh/custom/plugins/conda-zsh-completion
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "     Setting up zsh-tfenv..."
@@ -206,7 +206,7 @@ if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-tfenv ]; then
 else
   echo "       Updating zsh-tfenv..."
   cd ~/.oh-my-zsh/custom/plugins/zsh-tfenv
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "     Setting up zsh-aliases-lsd..."
@@ -216,7 +216,7 @@ if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-aliases-lsd ]; then
 else
   echo "       Updating zsh-aliases-lsd..."
   cd ~/.oh-my-zsh/custom/plugins/zsh-aliases-lsd
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 
 echo "   Downloading Azure CLI completion..."
@@ -261,9 +261,9 @@ echo "✅ Oh My Posh prompt theme set up successfully"
 echo "🐍 Configuring Conda (if available)..."
 if command -v conda &>/dev/null; then
   echo "   Initializing Conda for all shells..."
-  conda init --all --no-user-rc-path
+  conda init --all --no-user-rc-path 2>&1 || echo "     Conda init failed"
   echo "   Disabling Conda prompt changes..."
-  conda config --set changeps1 False
+  conda config --set changeps1 False 2>&1 || echo "     Conda config failed"
   echo "✅ Conda configured successfully"
 else
   echo "   Conda not found, skipping configuration"
@@ -318,14 +318,14 @@ if ! [ -d ~/.tfenv ]; then
 else
   echo "   Updating tfenv..."
   cd ~/.tfenv
-  git pull --quiet
+  git pull --quiet 2>&1
 fi
 echo "   Initializing tfenv..."
-~/.tfenv/bin/tfenv init >/dev/null 2>&1 || true
+~/.tfenv/bin/tfenv init 2>&1 || echo "     tfenv init failed or already initialized"
 echo "   Installing latest Terraform version..."
-~/.tfenv/bin/tfenv install >/dev/null 2>&1 || true
+~/.tfenv/bin/tfenv install 2>&1 || echo "     tfenv install failed or already installed"
 echo "   Setting Terraform version..."
-~/.tfenv/bin/tfenv use >/dev/null 2>&1 || true
+~/.tfenv/bin/tfenv use 2>&1 || echo "     tfenv use failed or version already set"
 echo "✅ Terraform version manager set up successfully"
 
 #if command -v pwsh &> /dev/null; then
