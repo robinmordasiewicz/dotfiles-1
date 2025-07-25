@@ -166,7 +166,7 @@ if ! [ -d ~/.oh-my-posh/themes/ ]; then
   mkdir -p ~/.oh-my-posh/themes
 fi
 curl -s https://ohmyposh.dev/install.sh | bash -s -- -d ~/.local/bin -t ~/.oh-my-posh/themes
-oh-my-posh font install Meslo
+~/.local/bin/oh-my-posh font install Meslo
 cp powerlevel10k.omp.json ~/.oh-my-posh/themes/powerlevel10k.omp.json
 
 # shellcheck disable=SC2016
