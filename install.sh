@@ -13,6 +13,10 @@ cp .tmux.conf ~/
 cp .p10k.zsh ~/
 cp .digrc ~/
 
+if [ -d ~/.vscode ]; then
+  rm -rf ~/.vscode
+fi
+cp -a .vscode ~/.vscode
 
 #if ! [ -d ~/.continue ]; then
 #  mkdir -p ~/.continue
