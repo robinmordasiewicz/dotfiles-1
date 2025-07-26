@@ -1,3 +1,19 @@
+## --- ENVIRONMENT FIX FOR CLOUD-INIT ---
+# If $HOME is unset or set to 'None', set it to the current user's home directory
+if [ -z "$HOME" ] || [ "$HOME" = "None" ]; then
+  export HOME="$(getent passwd $(id -u) | cut -d: -f6)"
+fi
+
+# Log the value of HOME for debugging
+echo "[dotfiles install.sh] HOME is set to: $HOME"
+
+# If XDG_CACHE_HOME is unset, set it to $HOME/.cache
+if [ -z "$XDG_CACHE_HOME" ]; then
+  export XDG_CACHE_HOME="$HOME/.cache"
+fi
+
+# Log the value of XDG_CACHE_HOME for debugging
+echo "[dotfiles install.sh] XDG_CACHE_HOME is set to: $XDG_CACHE_HOME"
 #!/usr/bin/env bash
 
 DOTFILEDIR="$(pwd)"
