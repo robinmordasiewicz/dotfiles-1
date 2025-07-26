@@ -1,3 +1,5 @@
+
+#!/usr/bin/env bash
 ## --- ENVIRONMENT FIX FOR CLOUD-INIT ---
 # If $HOME is unset or set to 'None', set it to the current user's home directory
 if [ -z "$HOME" ] || [ "$HOME" = "None" ]; then
@@ -14,7 +16,6 @@ fi
 
 # Log the value of XDG_CACHE_HOME for debugging
 echo "[dotfiles install.sh] XDG_CACHE_HOME is set to: $XDG_CACHE_HOME"
-#!/usr/bin/env bash
 
 DOTFILEDIR="$(pwd)"
 
@@ -24,7 +25,7 @@ for shellrc in ~/.zshrc ~/.bashrc; do
     # Use expanded home directory
     localbin="$HOME/.local/bin"
     # Check if the export line with the correct path already exists
-    if ! grep -q "export PATH=\$PATH:$localbin" "$shellrc" && ! grep -q "$localbin" <<< "$PATH"; then
+    if ! grep -q "export PATH=\$PATH:$localbin" "$shellrc" && ! echo "$PATH" | grep -q "$localbin"; then
       echo "export PATH=\$PATH:$localbin" >> "$shellrc"
     fi
   fi
