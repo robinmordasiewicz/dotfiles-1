@@ -437,12 +437,11 @@ log "INFO" "XDG_CACHE_HOME is set to: $XDG_CACHE_HOME"
 # Ensure $HOME/.local/bin is in PATH in ~/.zshrc and ~/.bashrc (append if not present)
 for shellrc in "$TARGET_HOME/.zshrc" "$TARGET_HOME/.bashrc"; do
     if [[ -f "$shellrc" ]]; then
-        # Use expanded home directory for checking existing paths
-        localbin="$TARGET_HOME/.local/bin"
         # Use $HOME variable in the actual export line
         home_localbin_export='export PATH=$PATH:$HOME/.local/bin'
-        # Check if the export line with the correct path already exists
-        if ! grep -q "export PATH=.*\$HOME/\.local/bin" "$shellrc" && ! echo "$PATH" | grep -q "$localbin"; then
+
+        # Check if any .local/bin PATH export already exists (either with $HOME or hardcoded)
+        if ! grep -q "export PATH=.*\.local/bin" "$shellrc"; then
             log "INFO" "Adding \$HOME/.local/bin to PATH in $shellrc"
             echo "$home_localbin_export" >> "$shellrc"
 
@@ -450,9 +449,71 @@ for shellrc in "$TARGET_HOME/.zshrc" "$TARGET_HOME/.bashrc"; do
             if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
                 chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$shellrc"
             fi
+        else
+            # Check if it's using hardcoded path and replace it
+            if grep -q "export PATH=.*${TARGET_USER}.*\.local/bin" "$shellrc" && ! grep -q "export PATH=.*\$HOME.*\.local/bin" "$shellrc"; then
+                log "INFO" "Replacing hardcoded path with \$HOME variable in $shellrc"
+                # Create a backup
+                cp "$shellrc" "$shellrc.backup.$(date +%Y%m%d_%H%M%S)"
+
+                # Replace hardcoded path with $HOME version
+                sed -i "s|export PATH=\$PATH:[^:]*${TARGET_USER}[^:]*\.local/bin|${home_localbin_export}|g" "$shellrc"
+
+                # Set proper ownership if running as root
+                if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+                    chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$shellrc"
+                fi
+            fi
         fi
     fi
 done
+
+# Add VSCode shell integration to .bashrc and .zshrc
+log "INFO" "Setting up VSCode shell integration..."
+
+# Configure VSCode shell integration for .bashrc
+bashrc_file="$TARGET_HOME/.bashrc"
+vscode_bash_integration='[[ "$TERM_PROGRAM" == "vscode" ]] && . "$(code --locate-shell-integration-path bash)"'
+if [[ -f "$bashrc_file" ]]; then
+    if ! grep -qF 'TERM_PROGRAM.*vscode.*locate-shell-integration-path.*bash' "$bashrc_file"; then
+        log "INFO" "Adding VSCode shell integration to .bashrc"
+        echo "" >> "$bashrc_file"
+        echo "# VSCode shell integration" >> "$bashrc_file"
+        echo "$vscode_bash_integration" >> "$bashrc_file"
+
+        # Set proper ownership if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$bashrc_file"
+        fi
+    else
+        log "INFO" "VSCode shell integration already configured in .bashrc"
+    fi
+else
+    log "WARN" ".bashrc not found, skipping VSCode shell integration setup for bash"
+fi
+
+# Configure VSCode shell integration for .zshrc
+zshrc_file="$TARGET_HOME/.zshrc"
+vscode_zsh_integration='[[ "$TERM_PROGRAM" == "vscode" ]] && . "$(code --locate-shell-integration-path zsh)"'
+if [[ -f "$zshrc_file" ]]; then
+    if ! grep -qF 'TERM_PROGRAM.*vscode.*locate-shell-integration-path.*zsh' "$zshrc_file"; then
+        log "INFO" "Adding VSCode shell integration to .zshrc"
+        echo "" >> "$zshrc_file"
+        echo "# VSCode shell integration" >> "$zshrc_file"
+        echo "$vscode_zsh_integration" >> "$zshrc_file"
+
+        # Set proper ownership if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+        fi
+    else
+        log "INFO" "VSCode shell integration already configured in .zshrc"
+    fi
+else
+    log "WARN" ".zshrc not found, skipping VSCode shell integration setup for zsh"
+fi
+
+log "INFO" "VSCode shell integration setup completed"
 
 log "INFO" "Starting dotfiles installation..."
 log "INFO" "Working directory: ${DOTFILEDIR}"
