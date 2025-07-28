@@ -1,364 +1,845 @@
-
 #!/usr/bin/env bash
+#
+# Dotfiles Installation Script
+# This script installs and configures various development tools and dotfiles
+# Supports both manual execution and cloud-init automation
+#
+# Usage:
+#   Manual: ./install.sh [--user username]
+#   Cloud-init: ./install.sh --cloud-init [--user username]
+#
+# Environment variables:
+#   DOTFILES_USER - Target user for installation (overrides --user)
+#   DOTFILES_HOME - Target home directory (auto-detected if not set)
+#   DEBUG - Enable debug mode (set to 1)
+#   CI - Indicates running in CI/automation environment
+#
+# Exit codes:
+#   0 - Success
+#   1 - General error
+#   2 - Network error
+#   3 - File system error
+#   4 - Permission error
+
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
+# Enable debug mode if DEBUG environment variable is set
+if [[ "${DEBUG:-}" == "1" ]]; then
+    set -x
+fi
+
+# Global variables for execution context
+CLOUD_INIT_MODE=false
+TARGET_USER=""
+TARGET_HOME=""
+SCRIPT_USER=""
+
+## --- EXECUTION CONTEXT DETECTION ---
+
+# Detect execution context and set variables
+detect_execution_context() {
+    SCRIPT_USER="$(whoami)"
+
+    # Check if running as root (typical in cloud-init)
+    if [[ "$EUID" -eq 0 ]]; then
+        log "INFO" "Running as root - cloud-init or sudo execution detected"
+        CLOUD_INIT_MODE=true
+    fi
+
+    # Check for CI/automation indicators
+    if [[ "${CI:-}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]] || [[ -n "${GITLAB_CI:-}" ]]; then
+        log "INFO" "CI/automation environment detected"
+        CLOUD_INIT_MODE=true
+    fi
+}
+
+# Parse command line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --cloud-init)
+                CLOUD_INIT_MODE=true
+                shift
+                ;;
+            --user)
+                TARGET_USER="$2"
+                shift 2
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                log "ERROR" "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Show help message
+show_help() {
+    cat << EOF
+Dotfiles Installation Script
+
+Usage:
+    $0 [options]
+
+Options:
+    --cloud-init        Run in cloud-init mode (for automation)
+    --user USERNAME     Target user for installation
+    --help, -h          Show this help message
+
+Environment Variables:
+    DOTFILES_USER       Target user (overrides --user)
+    DOTFILES_HOME       Target home directory
+    DEBUG=1             Enable debug mode
+    CI=true             Indicates CI/automation environment
+
+Examples:
+    # Manual installation for current user
+    ./install.sh
+
+    # Cloud-init installation for specific user
+    ./install.sh --cloud-init --user ubuntu
+
+    # Installation via sudo for another user
+    sudo DOTFILES_USER=myuser ./install.sh
+EOF
+}
+
+# Determine target user and home directory
+setup_target_user() {
+    # Priority: DOTFILES_USER env var > --user argument > current context
+    if [[ -n "${DOTFILES_USER:-}" ]]; then
+        TARGET_USER="$DOTFILES_USER"
+    elif [[ -z "$TARGET_USER" ]]; then
+        if [[ "$CLOUD_INIT_MODE" == "true" && "$EUID" -eq 0 ]]; then
+            # In cloud-init as root, try to detect the main user
+            if [[ -n "${SUDO_USER:-}" ]]; then
+                TARGET_USER="$SUDO_USER"
+            elif getent passwd 1000 >/dev/null 2>&1; then
+                TARGET_USER="$(getent passwd 1000 | cut -d: -f1)"
+            else
+                log "ERROR" "Cannot determine target user. Use --user or set DOTFILES_USER"
+                exit 1
+            fi
+        else
+            TARGET_USER="$SCRIPT_USER"
+        fi
+    fi
+
+    # Validate target user exists
+    if ! getent passwd "$TARGET_USER" >/dev/null 2>&1; then
+        log "ERROR" "User '$TARGET_USER' does not exist"
+        exit 1
+    fi
+
+    # Set target home directory
+    if [[ -n "${DOTFILES_HOME:-}" ]]; then
+        TARGET_HOME="$DOTFILES_HOME"
+    else
+        TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+    fi
+
+    # Validate home directory
+    if [[ ! -d "$TARGET_HOME" ]]; then
+        log "ERROR" "Home directory '$TARGET_HOME' does not exist"
+        exit 1
+    fi
+
+    log "INFO" "Target user: $TARGET_USER"
+    log "INFO" "Target home: $TARGET_HOME"
+    log "INFO" "Script user: $SCRIPT_USER"
+    log "INFO" "Cloud-init mode: $CLOUD_INIT_MODE"
+}
+
 ## --- ENVIRONMENT FIX FOR CLOUD-INIT ---
+
+# Logging function with timestamp
+log() {
+    local level="$1"
+    shift
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] [dotfiles install.sh] $*" >&2
+}
+
+# Error handling function
+handle_error() {
+    local exit_code=$?
+    local line_number=$1
+    log "ERROR" "Script failed at line $line_number with exit code $exit_code"
+    exit $exit_code
+}
+
+# Set up error trap
+trap 'handle_error $LINENO' ERR
+
+# Network operation with retry
+retry_network_operation() {
+    local max_attempts=3
+    local delay=2
+    local attempt=1
+    local command=("$@")
+
+    while [[ $attempt -le $max_attempts ]]; do
+        if "${command[@]}"; then
+            return 0
+        else
+            log "WARN" "Network operation failed (attempt $attempt/$max_attempts)"
+            if [[ $attempt -lt $max_attempts ]]; then
+                sleep $delay
+                ((delay *= 2))  # Exponential backoff
+            fi
+            ((attempt++))
+        fi
+    done
+
+    log "ERROR" "Network operation failed after $max_attempts attempts"
+    return 2
+}
+
+# Check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Verify file exists and is readable
+verify_file() {
+    local file="$1"
+    if [[ ! -f "$file" ]]; then
+        log "ERROR" "Required file not found: $file"
+        return 3
+    fi
+    if [[ ! -r "$file" ]]; then
+        log "ERROR" "Required file not readable: $file"
+        return 3
+    fi
+}
+
+# Safe directory creation
+safe_mkdir() {
+    local dir="$1"
+    if [[ ! -d "$dir" ]]; then
+        log "INFO" "Creating directory: $dir"
+        mkdir -p "$dir" || {
+            log "ERROR" "Failed to create directory: $dir"
+            return 3
+        }
+    fi
+}
+
+# Safe file copy with backup
+safe_copy() {
+    local src="$1"
+    local dest="$2"
+    local backup_ext
+    backup_ext=".backup.$(date +%Y%m%d_%H%M%S)"
+
+    verify_file "$src"
+
+    if [[ -f "$dest" ]]; then
+        log "INFO" "Backing up existing file: $dest -> $dest$backup_ext"
+        cp "$dest" "$dest$backup_ext"
+    fi
+
+    log "INFO" "Copying $src -> $dest"
+    cp "$src" "$dest" || {
+        log "ERROR" "Failed to copy $src to $dest"
+        return 3
+    }
+}
+
+# Git clone or update function
+git_clone_or_update() {
+    local repo_url="$1"
+    local target_dir="$2"
+    local clone_args="${3:-}"
+
+    if [[ ! -d "$target_dir" ]]; then
+        log "INFO" "Cloning $repo_url to $target_dir"
+        retry_network_operation git clone $clone_args "$repo_url" "$target_dir"
+    else
+        log "INFO" "Updating repository in $target_dir"
+        (
+            cd "$target_dir" || {
+                log "ERROR" "Failed to change to directory: $target_dir"
+                return 1
+            }
+            retry_network_operation git pull --quiet
+        )
+    fi
+}
+
+# Safe download function
+safe_download() {
+    local url="$1"
+    local output="$2"
+    local description="${3:-file}"
+
+    log "INFO" "Downloading $description from $url"
+    retry_network_operation curl -fsSL "$url" -o "$output"
+}
+
+# Execute command as target user
+run_as_user() {
+    local cmd="$*"
+
+    if [[ "$SCRIPT_USER" == "$TARGET_USER" ]]; then
+        # Same user, execute directly
+        eval "$cmd"
+    elif [[ "$EUID" -eq 0 ]]; then
+        # Running as root, switch to target user
+        sudo -u "$TARGET_USER" bash -c "$cmd"
+    else
+        log "ERROR" "Cannot switch to user '$TARGET_USER' without root privileges"
+        return 4
+    fi
+}
+
+# Execute command as target user with proper HOME environment
+run_as_user_with_home() {
+    local cmd="$*"
+
+    if [[ "$SCRIPT_USER" == "$TARGET_USER" ]]; then
+        # Same user, execute directly
+        eval "$cmd"
+    elif [[ "$EUID" -eq 0 ]]; then
+        # Running as root, switch to target user with proper environment
+        sudo -u "$TARGET_USER" -H bash -c "cd '$TARGET_HOME' && $cmd"
+    else
+        log "ERROR" "Cannot switch to user '$TARGET_USER' without root privileges"
+        return 4
+    fi
+}
+
+# Create directory with proper ownership
+safe_mkdir_user() {
+    local dir="$1"
+
+    if [[ ! -d "$dir" ]]; then
+        log "INFO" "Creating directory: $dir"
+        mkdir -p "$dir" || {
+            log "ERROR" "Failed to create directory: $dir"
+            return 3
+        }
+
+        # Set proper ownership if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown -R "$TARGET_USER:$(id -gn "$TARGET_USER")" "$dir"
+        fi
+    fi
+}
+
+# Copy file with proper ownership
+safe_copy_user() {
+    local src="$1"
+    local dest="$2"
+    local backup_ext
+    backup_ext=".backup.$(date +%Y%m%d_%H%M%S)"
+
+    verify_file "$src"
+
+    if [[ -f "$dest" ]]; then
+        log "INFO" "Backing up existing file: $dest -> $dest$backup_ext"
+        cp "$dest" "$dest$backup_ext"
+
+        # Set proper ownership for backup if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$dest$backup_ext"
+        fi
+    fi
+
+    log "INFO" "Copying $src -> $dest"
+    cp "$src" "$dest" || {
+        log "ERROR" "Failed to copy $src to $dest"
+        return 3
+    }
+
+    # Set proper ownership if running as root
+    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+        chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$dest"
+    fi
+}
+
+# Git clone or update with user context
+git_clone_or_update_user() {
+    local repo_url="$1"
+    local target_dir="$2"
+    local clone_args="${3:-}"
+
+    if [[ ! -d "$target_dir" ]]; then
+        log "INFO" "Cloning $repo_url to $target_dir"
+        # Ensure parent directory exists with proper ownership
+        safe_mkdir_user "$(dirname "$target_dir")"
+
+        run_as_user_with_home "git clone $clone_args '$repo_url' '$target_dir'" || {
+            # If git clone fails, try with retry
+            retry_network_operation run_as_user_with_home "git clone $clone_args '$repo_url' '$target_dir'"
+        }
+
+        # Set ownership if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown -R "$TARGET_USER:$(id -gn "$TARGET_USER")" "$target_dir"
+        fi
+    else
+        log "INFO" "Updating repository in $target_dir"
+        run_as_user_with_home "cd '$target_dir' && git pull --quiet" || {
+            # If git pull fails, try with retry
+            retry_network_operation run_as_user_with_home "cd '$target_dir' && git pull --quiet"
+        }
+    fi
+}
+
+# Set readonly variables for script execution (must be before function calls)
+declare -r DOTFILEDIR="$(pwd)"
+declare -r SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Validate we're in the correct directory
+if [[ ! -f "$SCRIPT_DIR/install.sh" ]]; then
+    log "ERROR" "Script must be run from the dotfiles directory"
+    exit 1
+fi
+
+## --- MAIN SCRIPT EXECUTION ---
+
 # If $HOME is unset or set to 'None', set it to the current user's home directory
-if [ -z "$HOME" ] || [ "$HOME" = "None" ]; then
-  export HOME="$(getent passwd $(id -u) | cut -d: -f6)"
+if [[ -z "${HOME:-}" ]] || [[ "$HOME" == "None" ]]; then
+    home_dir="$(getent passwd "$(id -u)" | cut -d: -f6)"
+    export HOME="$home_dir"
+fi
+
+# Parse command line arguments first
+parse_arguments "$@"
+
+# Detect execution context
+detect_execution_context
+
+# Setup target user and home directory
+setup_target_user
+
+# Override HOME with target home if different user
+if [[ "$TARGET_USER" != "$SCRIPT_USER" ]]; then
+    export HOME="$TARGET_HOME"
 fi
 
 # Log the value of HOME for debugging
-echo "[dotfiles install.sh] HOME is set to: $HOME"
+log "INFO" "HOME is set to: $HOME"
 
 # If XDG_CACHE_HOME is unset, set it to $HOME/.cache
-if [ -z "$XDG_CACHE_HOME" ]; then
-  export XDG_CACHE_HOME="$HOME/.cache"
+if [[ -z "${XDG_CACHE_HOME:-}" ]]; then
+    export XDG_CACHE_HOME="$HOME/.cache"
 fi
 
 # Log the value of XDG_CACHE_HOME for debugging
-echo "[dotfiles install.sh] XDG_CACHE_HOME is set to: $XDG_CACHE_HOME"
-
-DOTFILEDIR="$(pwd)"
+log "INFO" "XDG_CACHE_HOME is set to: $XDG_CACHE_HOME"
 
 # Ensure $HOME/.local/bin is in PATH in ~/.zshrc and ~/.bashrc (append if not present)
-for shellrc in ~/.zshrc ~/.bashrc; do
-  if [ -f "$shellrc" ]; then
-    # Use expanded home directory
-    localbin="$HOME/.local/bin"
-    # Check if the export line with the correct path already exists
-    if ! grep -q "export PATH=\$PATH:$localbin" "$shellrc" && ! echo "$PATH" | grep -q "$localbin"; then
-      echo "export PATH=\$PATH:$localbin" >> "$shellrc"
+for shellrc in "$TARGET_HOME/.zshrc" "$TARGET_HOME/.bashrc"; do
+    if [[ -f "$shellrc" ]]; then
+        # Use expanded home directory for checking existing paths
+        localbin="$TARGET_HOME/.local/bin"
+        # Use $HOME variable in the actual export line
+        home_localbin_export='export PATH=$PATH:$HOME/.local/bin'
+        # Check if the export line with the correct path already exists
+        if ! grep -q "export PATH=.*\$HOME/\.local/bin" "$shellrc" && ! echo "$PATH" | grep -q "$localbin"; then
+            log "INFO" "Adding \$HOME/.local/bin to PATH in $shellrc"
+            echo "$home_localbin_export" >> "$shellrc"
+
+            # Set proper ownership if running as root
+            if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+                chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$shellrc"
+            fi
+        fi
     fi
-  fi
 done
 
+log "INFO" "Starting dotfiles installation..."
+log "INFO" "Working directory: ${DOTFILEDIR}"
 
-echo "📂 Starting dotfiles installation..."
-echo "🏠 Working directory: ${DOTFILEDIR}"
+log "INFO" "Copying configuration files to home directory..."
 
-echo "📄 Copying configuration files to home directory..."
-cp .vimrc ~/
-cp .opencommit ~/
-cp .act ~/
-cp .tmux.conf ~/
-cp .p10k.zsh ~/
-cp .digrc ~/
-echo "✅ Configuration files copied successfully"
+# List of configuration files to copy
+declare -a config_files=(
+    ".vimrc"
+    ".opencommit"
+    ".act"
+    ".tmux.conf"
+    ".p10k.zsh"
+    ".digrc"
+)
 
-echo "🔧 Setting up VSCode configuration..."
-if [ -d ~/.vscode ]; then
-  echo "   Removing existing ~/.vscode directory..."
-  rm -rf ~/.vscode
+# Copy configuration files safely
+for config_file in "${config_files[@]}"; do
+    if [[ -f "$config_file" ]]; then
+        safe_copy_user "$config_file" "$TARGET_HOME/$config_file"
+    else
+        log "WARN" "Configuration file not found: $config_file"
+    fi
+done
+
+log "INFO" "Configuration files copied successfully"
+
+log "INFO" "Setting up VSCode configuration..."
+vscode_dir="$TARGET_HOME/.vscode"
+
+if [[ -d "$vscode_dir" ]]; then
+    log "INFO" "Backing up existing $vscode_dir directory..."
+    backup_ext=".backup.$(date +%Y%m%d_%H%M%S)"
+    mv "$vscode_dir" "$vscode_dir$backup_ext"
+
+    # Set proper ownership for backup if running as root
+    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+        chown -R "$TARGET_USER:$(id -gn "$TARGET_USER")" "$vscode_dir$backup_ext"
+    fi
 fi
-cp -a .vscode ~/.vscode
-echo "✅ VSCode configuration set up successfully"
+
+if [[ -d .vscode ]]; then
+    cp -a .vscode "$vscode_dir"
+
+    # Set proper ownership if running as root
+    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+        chown -R "$TARGET_USER:$(id -gn "$TARGET_USER")" "$vscode_dir"
+    fi
+
+    log "INFO" "VSCode configuration set up successfully"
+else
+    log "WARN" "VSCode configuration directory not found in dotfiles"
+fi
 
 #if ! [ -d ~/.continue ]; then
 #  mkdir -p ~/.continue
 #fi
 #cp .continue/config.json ~/.continue
 
-echo "📦 Setting up tmux plugins..."
-if ! [ -d ~/.tmux/plugins ]; then
-  echo "   Creating ~/.tmux/plugins directory..."
-  mkdir -p ~/.tmux/plugins
-fi
+log "INFO" "Setting up tmux plugins..."
+safe_mkdir_user "$TARGET_HOME/.tmux/plugins"
 
-if ! [ -d ~/.tmux/plugins/tpm ]; then
-  echo "   Cloning tmux plugin manager (tpm)..."
-  git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+git_clone_or_update_user "https://github.com/tmux-plugins/tpm" "$TARGET_HOME/.tmux/plugins/tpm"
+log "INFO" "Tmux plugins set up successfully"
+
+log "INFO" "Setting up Vim plugins and themes..."
+safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
+safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
+
+# Vim plugins configuration
+declare -A vim_plugins=(
+    ["vim-airline"]="https://github.com/vim-airline/vim-airline"
+    ["nerdtree"]="https://github.com/preservim/nerdtree.git"
+    ["fzf"]="https://github.com/junegunn/fzf.vim.git"
+    ["vim-gitgutter"]="https://github.com/airblade/vim-gitgutter.git"
+    ["vim-fugitive"]="https://github.com/tpope/vim-fugitive.git"
+    ["vim-terraform"]="https://github.com/hashivim/vim-terraform.git"
+)
+
+# Vim themes configuration
+declare -A vim_themes=(
+    ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
+)
+
+# Install/update Vim plugins
+for plugin in "${!vim_plugins[@]}"; do
+    plugin_dir="$TARGET_HOME/.vim/pack/plugin/start/$plugin"
+    clone_args=""
+
+    # Use shallow clone for vim-polyglot
+    if [[ "$plugin" == "vim-polyglot" ]]; then
+        clone_args="--depth 1"
+    fi
+
+    git_clone_or_update_user "${vim_plugins[$plugin]}" "$plugin_dir" "$clone_args"
+done
+
+# Special handling for vim-polyglot with shallow clone
+git_clone_or_update_user "https://github.com/sheerun/vim-polyglot" \
+    "$TARGET_HOME/.vim/pack/plugin/start/vim-polyglot" "--depth 1"
+
+# Install/update Vim themes
+for theme in "${!vim_themes[@]}"; do
+    git_clone_or_update_user "${vim_themes[$theme]}" "$TARGET_HOME/.vim/pack/themes/start/$theme"
+done
+
+log "INFO" "Vim plugins and themes set up successfully"
+
+log "INFO" "Setting up Zsh and Oh My Zsh..."
+oh_my_zsh_dir="$TARGET_HOME/.oh-my-zsh"
+
+if [[ ! -d "$oh_my_zsh_dir" ]]; then
+    log "INFO" "Installing Oh My Zsh..."
+    # Download and install Oh My Zsh as the target user
+    run_as_user_with_home 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended' || {
+        # Retry with network retry logic
+        retry_network_operation run_as_user_with_home 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
+    }
 else
-  echo "   Updating tmux plugin manager (tpm)..."
-  cd ~/.tmux/plugins/tpm && git pull --quiet 2>&1
-fi
-echo "✅ Tmux plugins set up successfully"
-
-echo "🎨 Setting up Vim plugins and themes..."
-if ! [ -d ~/.vim/pack/plugin/start ]; then
-  echo "   Creating ~/.vim/pack/plugin/start directory..."
-  mkdir -p ~/.vim/pack/plugin/start
+    log "INFO" "Oh My Zsh already installed"
 fi
 
-echo "   Setting up vim-airline plugin..."
-if ! [ -d ~/.vim/pack/plugin/start/vim-airline ]; then
-  echo "     Cloning vim-airline..."
-  git clone https://github.com/vim-airline/vim-airline ~/.vim/pack/plugin/start/vim-airline
+log "INFO" "Setting up z jump tool..."
+z_file="$TARGET_HOME/.z"
+if [[ ! -f "$z_file" ]]; then
+    run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/rupa/z/master/z.sh' -o '$z_file'" || {
+        retry_network_operation run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/rupa/z/master/z.sh' -o '$z_file'"
+    }
+    log "INFO" "z script downloaded successfully"
 else
-  echo "     Updating vim-airline..."
-  cd ~/.vim/pack/plugin/start/vim-airline || exit
-  git pull --quiet 2>&1
+    log "INFO" "z script already exists"
 fi
 
-echo "   Setting up nerdtree plugin..."
-if ! [ -d ~/.vim/pack/plugin/start/nerdtree ]; then
-  echo "     Cloning nerdtree..."
-  git clone https://github.com/preservim/nerdtree.git ~/.vim/pack/plugin/start/nerdtree
+log "INFO" "Setting up .zshrc configuration..."
+zshrc_file="$TARGET_HOME/.zshrc"
+if [[ ! -f "$zshrc_file" ]]; then
+    log "INFO" "Creating .zshrc from template..."
+    template_file="$oh_my_zsh_dir/templates/zshrc.zsh-template"
+    if [[ -f "$template_file" ]]; then
+        cp "$template_file" "$zshrc_file"
+
+        # Set proper ownership if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+        fi
+    else
+        log "WARN" "Oh My Zsh template not found, creating basic .zshrc"
+        echo "# Basic zshrc configuration" > "$zshrc_file"
+
+        # Set proper ownership if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+        fi
+    fi
 else
-  echo "     Updating nerdtree..."
-  cd ~/.vim/pack/plugin/start/nerdtree
-  git pull --quiet 2>&1
+    log "INFO" ".zshrc already exists"
 fi
 
-echo "   Setting up fzf plugin..."
-if ! [ -d ~/.vim/pack/plugin/start/fzf ]; then
-  echo "     Cloning fzf..."
-  git clone https://github.com/junegunn/fzf.vim.git ~/.vim/pack/plugin/start/fzf
+log "INFO" "Setting up Zsh plugins..."
+safe_mkdir_user "$oh_my_zsh_dir/custom/plugins"
+
+# Zsh plugins configuration
+declare -A zsh_plugins=(
+    ["zsh-autosuggestions"]="https://github.com/zsh-users/zsh-autosuggestions.git"
+    ["zsh-syntax-highlighting"]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
+    ["conda-zsh-completion"]="https://github.com/conda-incubator/conda-zsh-completion.git"
+    ["zsh-tfenv"]="https://github.com/cda0/zsh-tfenv.git"
+    ["zsh-aliases-lsd"]="https://github.com/yuhonas/zsh-aliases-lsd.git"
+)
+
+# Install/update Zsh plugins
+for plugin in "${!zsh_plugins[@]}"; do
+    git_clone_or_update_user "${zsh_plugins[$plugin]}" "$oh_my_zsh_dir/custom/plugins/$plugin"
+done
+
+log "INFO" "Downloading Azure CLI completion..."
+az_completion_file="$oh_my_zsh_dir/custom/az.zsh"
+run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/Azure/azure-cli/dev/az.completion' -o '$az_completion_file'" || {
+    retry_network_operation run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/Azure/azure-cli/dev/az.completion' -o '$az_completion_file'"
+}
+
+log "INFO" "Zsh and Oh My Zsh set up successfully"
+
+log "INFO" "Configuring Zsh plugins in .zshrc..."
+cd "${DOTFILEDIR}" || {
+    log "ERROR" "Failed to change to dotfiles directory"
+    exit 1
+}
+
+# Use atomic file replacement for .zshrc modification
+tmpfile=$(mktemp) || {
+    log "ERROR" "Failed to create temporary file"
+    exit 3
+}
+
+# Ensure cleanup of temporary file
+trap 'rm -f "$tmpfile"' EXIT
+
+if sed 's/^plugins=.*$/plugins=(git zsh-syntax-highlighting zsh-autosuggestions ubuntu jsontools gh common-aliases conda-zsh-completion zsh-aliases-lsd zsh-tfenv z pip docker)/' "$zshrc_file" > "$tmpfile"; then
+    mv "$tmpfile" "$zshrc_file" || {
+        log "ERROR" "Failed to update .zshrc"
+        exit 3
+    }
+
+    # Set proper ownership if running as root
+    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+        chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+    fi
 else
-  echo "     Updating fzf..."
-  cd ~/.vim/pack/plugin/start/fzf
-  git pull --quiet 2>&1
+    log "ERROR" "Failed to modify .zshrc content"
+    exit 3
 fi
 
-echo "   Setting up vim-gitgutter plugin..."
-if ! [ -d ~/.vim/pack/plugin/start/vim-gitgutter ]; then
-  echo "     Cloning vim-gitgutter..."
-  git clone https://github.com/airblade/vim-gitgutter.git ~/.vim/pack/plugin/start/vim-gitgutter
+log "INFO" "Zsh plugins configured successfully"
+
+log "INFO" "Setting up Oh My Posh prompt theme..."
+safe_mkdir_user "$TARGET_HOME/.local/bin"
+safe_mkdir_user "$TARGET_HOME/.oh-my-posh/themes"
+
+log "INFO" "Installing Oh My Posh..."
+# Install Oh My Posh as the target user
+run_as_user_with_home "curl -s https://ohmyposh.dev/install.sh | bash -s -- -d '$TARGET_HOME/.local/bin' -t '$TARGET_HOME/.oh-my-posh/themes'" || {
+    retry_network_operation run_as_user_with_home "curl -s https://ohmyposh.dev/install.sh | bash -s -- -d '$TARGET_HOME/.local/bin' -t '$TARGET_HOME/.oh-my-posh/themes'"
+}
+
+log "INFO" "Installing Meslo font (non-interactive)..."
+oh_my_posh_bin="$TARGET_HOME/.local/bin/oh-my-posh"
+if [[ -f "$oh_my_posh_bin" ]]; then
+    run_as_user_with_home "'$oh_my_posh_bin' font install Meslo" || log "WARN" "Font installation failed or already installed"
 else
-  echo "     Updating vim-gitgutter..."
-  cd ~/.vim/pack/plugin/start/vim-gitgutter
-  git pull --quiet 2>&1
+    log "WARN" "oh-my-posh not found, skipping font installation"
 fi
 
-echo "   Setting up vim-fugitive plugin..."
-if ! [ -d ~/.vim/pack/plugin/start/vim-fugitive ]; then
-  echo "     Cloning vim-fugitive..."
-  git clone https://github.com/tpope/vim-fugitive.git ~/.vim/pack/plugin/start/vim-fugitive
+log "INFO" "Copying powerlevel10k theme..."
+if [[ -f powerlevel10k.omp.json ]]; then
+    safe_copy_user powerlevel10k.omp.json "$TARGET_HOME/.oh-my-posh/themes/powerlevel10k.omp.json"
 else
-  echo "     Updating vim-fugitive..."
-  cd ~/.vim/pack/plugin/start/vim-fugitive
-  git pull --quiet 2>&1
+    log "WARN" "powerlevel10k.omp.json not found in dotfiles"
 fi
 
-echo "   Setting up vim-polyglot plugin..."
-if ! [ -d ~/.vim/pack/plugin/start/vim-polyglot ]; then
-  echo "     Cloning vim-polyglot..."
-  git clone --depth 1 https://github.com/sheerun/vim-polyglot ~/.vim/pack/plugin/start/vim-polyglot
+if [[ -f "$oh_my_posh_bin" ]]; then
+    run_as_user_with_home "'$oh_my_posh_bin' disable notice"
+fi
+
+log "INFO" "Configuring Oh My Posh in shell configurations..."
+# Configure Oh My Posh for zsh
+oh_my_posh_zsh_line='eval "$(oh-my-posh init zsh --config ~/.oh-my-posh/themes/powerlevel10k.omp.json)"'
+if ! grep -qxF "$oh_my_posh_zsh_line" "$zshrc_file" 2>/dev/null; then
+    echo "$oh_my_posh_zsh_line" >> "$zshrc_file"
+
+    # Set proper ownership if running as root
+    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+        chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+    fi
+fi
+
+log "INFO" "Configuring Conda (if available)..."
+if command_exists conda; then
+    log "INFO" "Initializing Conda for all shells..."
+    conda init --all --no-user-rc-path 2>&1 || log "WARN" "Conda init failed"
+
+    log "INFO" "Disabling Conda prompt changes..."
+    conda config --set changeps1 False 2>&1 || log "WARN" "Conda config failed"
+
+    log "INFO" "Conda configured successfully"
 else
-  echo "     Updating vim-polyglot..."
-  cd ~/.vim/pack/plugin/start/vim-polyglot
-  git pull --quiet 2>&1
+    log "INFO" "Conda not found, skipping configuration"
 fi
 
-echo "   Setting up vim-terraform plugin..."
-if ! [ -d ~/.vim/pack/plugin/start/vim-terraform ]; then
-  echo "     Cloning vim-terraform..."
-  git clone https://github.com/hashivim/vim-terraform.git ~/.vim/pack/plugin/start/vim-terraform
-else
-  echo "     Updating vim-terraform..."
-  cd ~/.vim/pack/plugin/start/vim-terraform
-  git pull --quiet 2>&1
-fi
-
-echo "   Setting up Vim themes..."
-if ! [ -d ~/.vim/pack/themes/start ]; then
-  echo "     Creating ~/.vim/pack/themes/start directory..."
-  mkdir -p ~/.vim/pack/themes/start
-fi
-
-echo "   Setting up vim-code-dark theme..."
-if ! [ -d ~/.vim/pack/themes/start/vim-code-dark ]; then
-  echo "     Cloning vim-code-dark theme..."
-  git clone https://github.com/tomasiser/vim-code-dark ~/.vim/pack/themes/start/vim-code-dark
-else
-  echo "     Updating vim-code-dark theme..."
-  cd ~/.vim/pack/themes/start/vim-code-dark || return
-  git pull --quiet 2>&1
-fi
-echo "✅ Vim plugins and themes set up successfully"
-
-echo "🐚 Setting up Zsh and Oh My Zsh..."
-if ! [ -d ~/.oh-my-zsh ]; then
-  echo "   Installing Oh My Zsh..."
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-else
-  echo "   Oh My Zsh already installed"
-fi
-
-echo "   Setting up z jump tool..."
-if ! [ -f ~/.z ]; then
-  echo "     Downloading z script..."
-  curl -L https://raw.githubusercontent.com/rupa/z/master/z.sh -o ~/.z
-else
-  echo "     z script already exists"
-fi
-
-echo "   Setting up .zshrc configuration..."
-if ! [ -f ~/.zshrc ]; then
-  echo "     Creating .zshrc from template..."
-  cp ~/.oh-my-zsh/templates/zshrc.zsh-template ~/.zshrc
-else
-  echo "     .zshrc already exists"
-fi
-
-echo "   Setting up Zsh plugins..."
-if ! [ -d ~/.oh-my-zsh/custom/plugins ]; then
-  echo "     Creating custom plugins directory..."
-  mkdir ~/.oh-my-zsh/custom/plugins
-fi
-
-echo "     Setting up zsh-autosuggestions..."
-if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions ]; then
-  echo "       Cloning zsh-autosuggestions..."
-  git clone https://github.com/zsh-users/zsh-autosuggestions.git ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions
-else
-  echo "       Updating zsh-autosuggestions..."
-  cd ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions
-  git pull --quiet 2>&1
-fi
-
-echo "     Setting up zsh-syntax-highlighting..."
-if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting ]; then
-  echo "       Cloning zsh-syntax-highlighting..."
-  git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting
-else
-  echo "       Updating zsh-syntax-highlighting..."
-  cd ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting
-  git pull --quiet 2>&1
-fi
-
-echo "     Setting up conda-zsh-completion..."
-if ! [ -d ~/.oh-my-zsh/custom/plugins/conda-zsh-completion ]; then
-  echo "       Cloning conda-zsh-completion..."
-  git clone https://github.com/conda-incubator/conda-zsh-completion.git ~/.oh-my-zsh/custom/plugins/conda-zsh-completion
-else
-  echo "       Updating conda-zsh-completion..."
-  cd ~/.oh-my-zsh/custom/plugins/conda-zsh-completion
-  git pull --quiet 2>&1
-fi
-
-echo "     Setting up zsh-tfenv..."
-if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-tfenv ]; then
-  echo "       Cloning zsh-tfenv..."
-  git clone https://github.com/cda0/zsh-tfenv.git ~/.oh-my-zsh/custom/plugins/zsh-tfenv
-else
-  echo "       Updating zsh-tfenv..."
-  cd ~/.oh-my-zsh/custom/plugins/zsh-tfenv
-  git pull --quiet 2>&1
-fi
-
-echo "     Setting up zsh-aliases-lsd..."
-if ! [ -d ~/.oh-my-zsh/custom/plugins/zsh-aliases-lsd ]; then
-  echo "       Cloning zsh-aliases-lsd..."
-  git clone https://github.com/yuhonas/zsh-aliases-lsd.git ~/.oh-my-zsh/custom/plugins/zsh-aliases-lsd
-else
-  echo "       Updating zsh-aliases-lsd..."
-  cd ~/.oh-my-zsh/custom/plugins/zsh-aliases-lsd
-  git pull --quiet 2>&1
-fi
-
-echo "   Downloading Azure CLI completion..."
-curl -sL https://raw.githubusercontent.com/Azure/azure-cli/dev/az.completion -o ~/.oh-my-zsh/custom/az.zsh
-echo "✅ Zsh and Oh My Zsh set up successfully"
-
-echo "⚙️  Configuring Zsh plugins in .zshrc..."
-cd "${DOTFILEDIR}"
-
-tmpfile=$(mktemp)
-sed 's/^plugins=.*$/plugins=(git zsh-syntax-highlighting zsh-autosuggestions ubuntu jsontools gh common-aliases conda-zsh-completion zsh-aliases-lsd zsh-tfenv z pip docker)/' ~/.zshrc >"${tmpfile}" && mv "${tmpfile}" ~/.zshrc
-
-if [ -f "${tmpfile}" ]; then
-  rm "${tmpfile}"
-fi
-echo "✅ Zsh plugins configured successfully"
-
-echo "🎨 Setting up Oh My Posh prompt theme..."
-if ! [ -d ~/.local/bin/ ]; then
-  echo "   Creating ~/.local/bin directory..."
-  mkdir -p ~/.local/bin/
-fi
-if ! [ -d ~/.oh-my-posh/themes/ ]; then
-  echo "   Creating ~/.oh-my-posh/themes directory..."
-  mkdir -p ~/.oh-my-posh/themes
-fi
-echo "   Installing Oh My Posh..."
-curl -s https://ohmyposh.dev/install.sh | bash -s -- -d ~/.local/bin -t ~/.oh-my-posh/themes
-echo "   Installing Meslo font (non-interactive)..."
-~/.local/bin/oh-my-posh font install Meslo || echo "     Font installation failed or already installed"
-echo "   Copying powerlevel10k theme..."
-cp powerlevel10k.omp.json ~/.oh-my-posh/themes/powerlevel10k.omp.json
-oh-my-posh disable notice
-
-echo "   Configuring Oh My Posh in shell configurations..."
-# shellcheck disable=SC2016
-grep -qxF 'eval "$(oh-my-posh init zsh --config ~/.oh-my-posh/themes/powerlevel10k.omp.json)"' ~/.zshrc || echo 'eval "$(oh-my-posh init zsh --config ~/.oh-my-posh/themes/powerlevel10k.omp.json)"' >>~/.zshrc
-
-# shellcheck disable=SC2016
-grep -qxF 'eval "$(oh-my-posh init bash --config ~/.oh-my-posh/themes/powerlevel10k.omp.json)"' ~/.bashrc || echo 'eval "$(oh-my-posh init bash --config ~/.oh-my-posh/themes/powerlevel10k.omp.json)"' >>~/.bashrc
-echo "✅ Oh My Posh prompt theme set up successfully"
-
-echo "🐍 Configuring Conda (if available)..."
-if command -v conda &>/dev/null; then
-  echo "   Initializing Conda for all shells..."
-  conda init --all --no-user-rc-path 2>&1 || echo "     Conda init failed"
-  echo "   Disabling Conda prompt changes..."
-  conda config --set changeps1 False 2>&1 || echo "     Conda config failed"
-  echo "✅ Conda configured successfully"
-else
-  echo "   Conda not found, skipping configuration"
-fi
-
-echo "📁 Installing lsd (modern ls replacement) on Linux..."
+log "INFO" "Installing lsd (modern ls replacement) on Linux..."
 if [[ "$(uname)" == "Linux" ]]; then
-  if ! command -v lsd &>/dev/null; then
-    echo "   Downloading and installing lsd..."
-    curl -L https://github.com/lsd-rs/lsd/releases/download/v1.0.0/lsd-v1.0.0-x86_64-unknown-linux-gnu.tar.gz -o lsd.tar.gz
-    tar -zxf lsd.tar.gz
-    mv lsd-v1.0.0-x86_64-unknown-linux-gnu/lsd ~/.local/bin/
-    rm -rf lsd-v1.0.0-x86_64-unknown-linux-gn* lsd.tar.gz
-    echo "✅ lsd installed successfully"
-  else
-    echo "   lsd already installed"
-  fi
+    if ! run_as_user_with_home "command -v lsd >/dev/null 2>&1"; then
+        log "INFO" "Downloading and installing lsd..."
+        lsd_version="v1.0.0"
+        lsd_file="lsd-${lsd_version}-x86_64-unknown-linux-gnu.tar.gz"
+        lsd_url="https://github.com/lsd-rs/lsd/releases/download/${lsd_version}/${lsd_file}"
+
+        # Download to a temporary location
+        temp_dir=$(mktemp -d)
+        trap 'rm -rf "$temp_dir"' EXIT
+
+        retry_network_operation curl -fsSL "$lsd_url" -o "$temp_dir/$lsd_file"
+
+        (
+            cd "$temp_dir" || exit 3
+            tar -zxf "$lsd_file" || {
+                log "ERROR" "Failed to extract lsd archive"
+                exit 3
+            }
+
+            # Extract directory name without extension
+            lsd_dir="${lsd_file%.tar.gz}"
+
+            # Ensure local bin directory exists
+            safe_mkdir_user "$TARGET_HOME/.local/bin"
+
+            # Move binary and set ownership
+            mv "$lsd_dir/lsd" "$TARGET_HOME/.local/bin/" || {
+                log "ERROR" "Failed to move lsd binary"
+                exit 3
+            }
+
+            # Set proper ownership and permissions
+            if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+                chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$TARGET_HOME/.local/bin/lsd"
+            fi
+            chmod +x "$TARGET_HOME/.local/bin/lsd"
+        )
+
+        log "INFO" "lsd installed successfully"
+    else
+        log "INFO" "lsd already installed"
+    fi
 else
-  echo "   Not on Linux, skipping lsd installation"
+    log "INFO" "Not on Linux, skipping lsd installation"
 fi
 
-echo "⚡ Setting up PowerShell profile..."
-if [ -n "${AZUREPS_HOST_ENVIRONMENT}" ]; then
-  echo "   Detected Azure PowerShell environment"
-  if ! [ -d ~/.config/PowerShell/ ]; then
-    echo "     Creating ~/.config/PowerShell directory..."
-    mkdir -p ~/.config/PowerShell
-  fi
-  echo "     Copying PowerShell profile..."
-  cp Microsoft.PowerShell_profile.ps1 ~/.config/PowerShell/Microsoft.PowerShell_profile.ps1
-  echo "✅ PowerShell profile set up for Azure environment"
+log "INFO" "Setting up PowerShell profile..."
+if [[ -n "${AZUREPS_HOST_ENVIRONMENT:-}" ]]; then
+    log "INFO" "Detected Azure PowerShell environment"
+    powershell_dir="$TARGET_HOME/.config/PowerShell"
+    safe_mkdir_user "$powershell_dir"
+
+    log "INFO" "Copying PowerShell profile..."
+    if [[ -f Microsoft.PowerShell_profile.ps1 ]]; then
+        safe_copy_user Microsoft.PowerShell_profile.ps1 "$powershell_dir/Microsoft.PowerShell_profile.ps1"
+        log "INFO" "PowerShell profile set up for Azure environment"
+    else
+        log "WARN" "PowerShell profile not found in dotfiles"
+    fi
 else
-  echo "   Standard environment detected"
-  if command -v az &>/dev/null; then
-    echo "     Configuring Azure CLI auto-upgrade..."
-    az config set auto-upgrade.enable=yes --only-show-errors
-    az config set auto-upgrade.prompt=no --only-show-errors
-  fi
-  if ! [ -d ~/.config/powershell/ ]; then
-    echo "     Creating ~/.config/powershell directory..."
-    mkdir -p ~/.config/powershell
-  fi
-  echo "     Copying PowerShell profile..."
-  cp Microsoft.PowerShell_profile.ps1 ~/.config/powershell/Microsoft.PowerShell_profile.ps1
-  echo "✅ PowerShell profile set up successfully"
+    log "INFO" "Standard environment detected"
+    if command_exists az; then
+        log "INFO" "Configuring Azure CLI auto-upgrade..."
+        run_as_user "az config set auto-upgrade.enable=yes --only-show-errors" || log "WARN" "Failed to set Azure CLI auto-upgrade"
+        run_as_user "az config set auto-upgrade.prompt=no --only-show-errors" || log "WARN" "Failed to set Azure CLI prompt setting"
+    fi
+
+    powershell_dir="$TARGET_HOME/.config/powershell"
+    safe_mkdir_user "$powershell_dir"
+
+    log "INFO" "Copying PowerShell profile..."
+    if [[ -f Microsoft.PowerShell_profile.ps1 ]]; then
+        safe_copy_user Microsoft.PowerShell_profile.ps1 "$powershell_dir/Microsoft.PowerShell_profile.ps1"
+        log "INFO" "PowerShell profile set up successfully"
+    else
+        log "WARN" "PowerShell profile not found in dotfiles"
+    fi
 fi
 
-echo "🏗️  Setting up Terraform version manager (tfenv)..."
-if ! [ -d ~/.tfenv ]; then
-  echo "   Cloning tfenv repository..."
-  git clone --depth=1 https://github.com/tfutils/tfenv.git ~/.tfenv
-else
-  echo "   Updating tfenv..."
-  cd ~/.tfenv || exit
-  git pull --quiet 2>&1
-fi
-echo "   Initializing tfenv..."
-~/.tfenv/bin/tfenv init 2>&1 || echo "     tfenv init failed or already initialized"
-echo "   Installing latest Terraform version..."
-~/.tfenv/bin/tfenv install 2>&1 || echo "     tfenv install failed or already installed"
-echo "   Setting Terraform version..."
-~/.tfenv/bin/tfenv use 2>&1 || echo "     tfenv use failed or version already set"
-echo "✅ Terraform version manager set up successfully"
+log "INFO" "Setting up Terraform version manager (tfenv)..."
+tfenv_dir="$TARGET_HOME/.tfenv"
 
-#if command -v pwsh &> /dev/null; then
-#  pwsh -NoProfile -NonInteractive -Command "Install-Module -Name Terminal-Icons -Repository PSGallery -AllowClobber -Force" || continue
-#  pwsh -NoProfile -NonInteractive -Command "Install-Module -Name z -Repository PSGallery -AllowClobber -Force" || continue
+git_clone_or_update_user "https://github.com/tfutils/tfenv.git" "$tfenv_dir" "--depth=1"
+
+log "INFO" "Initializing tfenv..."
+run_as_user_with_home "'$tfenv_dir/bin/tfenv' init" 2>&1 || log "WARN" "tfenv init failed or already initialized"
+
+log "INFO" "Installing latest Terraform version..."
+run_as_user_with_home "'$tfenv_dir/bin/tfenv' install" 2>&1 || log "WARN" "tfenv install failed or already installed"
+
+log "INFO" "Setting Terraform version..."
+run_as_user_with_home "'$tfenv_dir/bin/tfenv' use" 2>&1 || log "WARN" "tfenv use failed or version already set"
+
+log "INFO" "Terraform version manager set up successfully"
+
+# Commented out PowerShell module installation
+# This would require PowerShell to be installed and may need user interaction
+#if run_as_user "command -v pwsh >/dev/null 2>&1"; then
+#    log "INFO" "Installing PowerShell modules..."
+#    run_as_user 'pwsh -NoProfile -NonInteractive -Command "Install-Module -Name Terminal-Icons -Repository PSGallery -AllowClobber -Force"' || log "WARN" "Failed to install Terminal-Icons module"
+#    run_as_user 'pwsh -NoProfile -NonInteractive -Command "Install-Module -Name z -Repository PSGallery -AllowClobber -Force"' || log "WARN" "Failed to install z module"
 #fi
 
-echo "🎉 Dotfiles installation completed successfully!"
-echo "💡 Please restart your terminal or run 'source ~/.zshrc' to apply all changes."
+log "INFO" "Dotfiles installation completed successfully!"
+
+if [[ "$CLOUD_INIT_MODE" == "true" ]]; then
+    log "INFO" "Cloud-init installation completed for user: $TARGET_USER"
+    log "INFO" "Configuration installed to: $TARGET_HOME"
+    log "INFO" "The user should restart their terminal or run 'source ~/.zshrc' to apply changes."
+else
+    log "INFO" "Manual installation completed for user: $TARGET_USER"
+    log "INFO" "Please restart your terminal or run 'source ~/.zshrc' to apply all changes."
+fi
+
+# If running as root for another user, provide additional information
+if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+    log "INFO" "Files have been installed with proper ownership for user: $TARGET_USER"
+    log "INFO" "The target user should log in and restart their shell to see the changes."
+fi
