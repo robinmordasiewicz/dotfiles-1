@@ -31,7 +31,7 @@
         "run"
       ],
       "type": "stdio"
-    }
+    },
     "time": {
       "command": "docker",
       "args": [
