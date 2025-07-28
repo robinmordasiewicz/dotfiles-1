@@ -23,15 +23,6 @@
         "mcp/git"
       ]
     },
-    "MCP_DOCKER": {
-      "command": "docker",
-      "args": [
-        "mcp",
-        "gateway",
-        "run"
-      ],
-      "type": "stdio"
-    },
     "time": {
       "command": "docker",
       "args": [
