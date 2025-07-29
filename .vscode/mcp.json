@@ -1,127 +1,93 @@
 {
-  "inputs": [
-    {
-      "description": "Perplexity API Key",
-      "id": "perplexity-api-key",
-      "password": true,
-      "type": "promptString"
-    }
-  ],
   "servers": {
-    "Perplexity": {
-      "args": [
-        "perplexity-mcp"
-      ],
-      "command": "uvx",
-      "env": {
-        "PERPLEXITY_API_KEY": "${input:perplexity-api-key}",
-        "PERPLEXITY_MODEL": "sonar"
-      },
-      "type": "stdio"
-    },
-    "azure": {
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "node:20-bookworm",
-        "sh",
-        "-c",
-        "apt-get update && apt-get install -y libicu-dev && npx -y @azure/mcp@latest server start"
-      ],
-      "command": "docker",
-      "type": "stdio"
-    },
-    "filesystem": {
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--mount",
-        "type=bind,src=${workspaceFolder},dst=/projects/workspace",
-        "mcp/filesystem",
-        "/projects"
-      ],
-      "command": "docker"
-    },
-    "git": {
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "--mount",
-        "type=bind,src=${workspaceFolder},dst=/workspace",
-        "mcp/git"
-      ],
-      "command": "docker"
-    },
     "github": {
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp/"
     },
-    "kubernetes": {
-      "args": [
-        "-y",
-        "kubernetes-mcp-server@latest"
-      ],
-      "command": "npx",
-      "type": "stdio"
-    },
-    "markitdown": {
-      "args": [
-        "markitdown-mcp"
-      ],
+    "Perplexity": {
+      "type": "stdio",
       "command": "uvx",
-      "type": "stdio"
+      "args": ["perplexity-mcp"],
+      "env": {
+        "PERPLEXITY_API_KEY": "${input:perplexity-api-key}",
+        "PERPLEXITY_MODEL": "sonar"
+      }
     },
-    "memory": {
+    "git": {
+      "command": "docker",
       "args": [
         "run",
         "-i",
-        "-v",
-        "claude-memory:/app/dist",
-        "--rm",
-        "mcp/memory"
-      ],
-      "command": "docker"
+        "--mount",
+        "type=bind,src=${workspaceFolder},dst=/workspace",
+        "mcp/git"
+      ]
+    },
+    "time": {
+      "command": "docker",
+      "args": ["run", "-i", "mcp/time"]
+    },
+    "memory": {
+      "command": "docker",
+      "args": ["run", "-i", "-v", "claude-memory:/app/dist", "mcp/memory"]
+    },
+    "sequential-thinking": {
+      "command": "docker",
+      "args": ["run", "-i", "mcp/sequentialthinking"]
+    },
+    "filesystem": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--mount",
+        "type=bind,src=${workspaceFolder},dst=/projects/workspace",
+        "mcp/filesystem",
+        "/projects"
+      ]
+    },
+    "kubernetes": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "kubernetes-mcp-server@latest"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    },
+    "terraform": {
+      "type": "stdio",
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:latest"]
+    },
+    "azure": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "node:20-bookworm",
+        "sh",
+        "-c",
+        "apt-get update && apt-get install -y libicu-dev && npx -y @azure/mcp@latest server start"
+      ]
     },
     "microsoft-docs": {
       "type": "http",
       "url": "https://learn.microsoft.com/api/mcp"
     },
-    "playwright": {
-      "args": [
-        "@playwright/mcp@latest"
-      ],
-      "command": "npx"
-    },
-    "sequential-thinking": {
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "mcp/sequentialthinking"
-      ],
-      "command": "docker"
-    },
-    "terraform": {
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "hashicorp/terraform-mcp-server:latest"
-      ],
-      "command": "docker",
-      "type": "stdio"
-    },
-    "time": {
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "mcp/time"
-      ],
-      "command": "docker"
+    "markitdown": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["markitdown-mcp"]
     }
-  }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "perplexity-api-key",
+      "description": "Perplexity API Key",
+      "password": true
+    }
+  ]
 }
