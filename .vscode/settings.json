@@ -113,7 +113,7 @@
       "text": "Example: feat(api)!: ✨ Change authentication method"
     },
     {
-      "text": "Example with body: feat(auth): ✨ Add OAuth2 support\\n\\n- Implement Google OAuth2 provider\\n- Add user session management\\n- Update security policies\\n\\nCloses #123"
+      "text": "Example with body: feat(auth): ✨ Add OAuth2 support\n\n- Implement Google OAuth2 provider\n- Add user session management\n- Update security policies\n\nCloses #123"
     }
   ]
 }
