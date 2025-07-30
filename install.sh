@@ -438,9 +438,30 @@ git_clone_or_update_user() {
         fi
     else
         log "INFO" "Updating repository in $target_dir"
-        run_as_user_with_home "cd '$target_dir' && git pull --quiet" || {
-            # If git pull fails, try with retry
-            retry_network_operation run_as_user_with_home "cd '$target_dir' && git pull --quiet"
+        # Enhanced git update with branch handling
+        local update_cmd="cd '$target_dir' && git fetch origin --quiet && {
+            # Get the default branch from remote
+            default_branch=\$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo 'main')
+            # Check if default branch exists locally
+            if git show-ref --verify --quiet refs/heads/\$default_branch; then
+                git checkout \$default_branch --quiet 2>/dev/null || true
+            else
+                # Create and checkout the default branch if it doesn't exist locally
+                git checkout -b \$default_branch origin/\$default_branch --quiet 2>/dev/null || {
+                    # If that fails, try to checkout the remote default branch directly
+                    git checkout origin/\$default_branch --quiet 2>/dev/null || true
+                }
+            fi
+            # Now pull the latest changes
+            git pull --quiet 2>/dev/null || git reset --hard origin/\$default_branch --quiet 2>/dev/null || true
+        }"
+        
+        run_as_user_with_home "$update_cmd" || {
+            log "WARN" "Git update failed for $target_dir, attempting fallback"
+            # Fallback: try a simple pull, and if that fails, reset to origin
+            run_as_user_with_home "cd '$target_dir' && (git pull --quiet || git fetch --quiet && git reset --hard origin/HEAD --quiet)" || {
+                log "WARN" "Repository update failed for $target_dir, but continuing installation"
+            }
         }
     fi
 }
