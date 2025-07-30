@@ -63,6 +63,7 @@
       "path": "/usr/bin/zsh"
     }
   },
+  "terminal.integrated.suggest.enabled": true,
   "remote.autoForwardPorts": true,
   "remote.autoForwardPortsSource": "output",
   "github.copilot.chat.commitMessageGeneration.instructions": [
