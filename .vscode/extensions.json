@@ -42,6 +42,7 @@
     "ms-vscode.live-server",
     "ms-vscode.powershell",
     "ms-vscode-remote.remote-containers",
+    "ms-azuretools.vscode-azureterraform",
     "ms-vscode.vscode-node-azure-pack",
     "ms-vsliveshare.vsliveshare",
     "msazurermtools.azurerm-vscode-tools",
