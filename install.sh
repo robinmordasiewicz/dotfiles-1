@@ -119,11 +119,20 @@ setup_target_user() {
             # In cloud-init as root, try to detect the main user
             if [[ -n "${SUDO_USER:-}" ]]; then
                 TARGET_USER="$SUDO_USER"
-            elif getent passwd 1000 >/dev/null 2>&1; then
-                TARGET_USER="$(getent passwd 1000 | cut -d: -f1)"
             else
-                log "ERROR" "Cannot determine target user. Use --user or set DOTFILES_USER"
-                exit 1
+                # Try to find the first non-system user (UID >= 1000 on Linux, >= 500 on macOS)
+                local min_uid
+                if [[ "$(uname)" == "Darwin" ]]; then
+                    min_uid=500
+                else
+                    min_uid=1000
+                fi
+                
+                TARGET_USER="$(get_user_by_uid "$min_uid")"
+                if [[ -z "$TARGET_USER" ]]; then
+                    log "ERROR" "Cannot determine target user. Use --user or set DOTFILES_USER"
+                    exit 1
+                fi
             fi
         else
             TARGET_USER="$SCRIPT_USER"
@@ -131,7 +140,7 @@ setup_target_user() {
     fi
 
     # Validate target user exists
-    if ! getent passwd "$TARGET_USER" >/dev/null 2>&1; then
+    if ! user_exists "$TARGET_USER"; then
         log "ERROR" "User '$TARGET_USER' does not exist"
         exit 1
     fi
@@ -140,7 +149,7 @@ setup_target_user() {
     if [[ -n "${DOTFILES_HOME:-}" ]]; then
         TARGET_HOME="$DOTFILES_HOME"
     else
-        TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+        TARGET_HOME="$(get_user_home "$TARGET_USER")"
     fi
 
     # Validate home directory
@@ -202,6 +211,51 @@ retry_network_operation() {
 # Check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+# Cross-platform user validation
+user_exists() {
+    local user="$1"
+    if command_exists getent; then
+        # Linux with getent
+        getent passwd "$user" >/dev/null 2>&1
+    elif [[ "$(uname)" == "Darwin" ]]; then
+        # macOS
+        dscl . -read "/Users/$user" >/dev/null 2>&1
+    else
+        # Fallback - check if user has a home directory
+        id "$user" >/dev/null 2>&1
+    fi
+}
+
+# Cross-platform get user home directory
+get_user_home() {
+    local user="$1"
+    if command_exists getent; then
+        # Linux with getent
+        getent passwd "$user" | cut -d: -f6
+    elif [[ "$(uname)" == "Darwin" ]]; then
+        # macOS
+        dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}'
+    else
+        # Fallback
+        eval echo "~$user"
+    fi
+}
+
+# Cross-platform get user by UID
+get_user_by_uid() {
+    local uid="$1"
+    if command_exists getent; then
+        # Linux with getent
+        getent passwd "$uid" | cut -d: -f1
+    elif [[ "$(uname)" == "Darwin" ]]; then
+        # macOS
+        dscl . -search /Users UniqueID "$uid" 2>/dev/null | head -1 | awk '{print $1}'
+    else
+        # Fallback
+        id -un "$uid" 2>/dev/null
+    fi
 }
 
 # Verify file exists and is readable
@@ -405,7 +459,8 @@ fi
 
 # If $HOME is unset or set to 'None', set it to the current user's home directory
 if [[ -z "${HOME:-}" ]] || [[ "$HOME" == "None" ]]; then
-    home_dir="$(getent passwd "$(id -u)" | cut -d: -f6)"
+    current_user="$(whoami)"
+    home_dir="$(get_user_home "$current_user")"
     export HOME="$home_dir"
 fi
 
