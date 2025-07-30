@@ -18,7 +18,7 @@ bash install.sh
 ### Configuration Files
 - **`.vimrc`** - Vim editor configuration with plugins and themes
 - **`.tmux.conf`** - Terminal multiplexer settings
-- **`.zshrc`** - Zsh shell configuration 
+- **`.zshrc`** - Zsh shell configuration
 - **`.p10k.zsh`** - Powerlevel10k prompt theme
 - **`.digrc`** - DNS lookup tool configuration
 - **`.opencommit`** - AI-powered commit message configuration
@@ -38,7 +38,7 @@ bash install.sh
 ## 🔧 Installation Features
 
 - **🤖 Fully Automated** - No user prompts, perfect for CI/CD and cloud-init
-- **📊 Verbose Logging** - All errors and progress visible in logs  
+- **📊 Verbose Logging** - All errors and progress visible in logs
 - **🔄 Idempotent** - Safe to run multiple times
 - **🌐 Cross-Platform** - Handles Linux, macOS, and cloud environments
 - **⚡ Cloud-Ready** - Environment variable handling for automated deployments
@@ -52,7 +52,7 @@ This repository includes a dev container configuration for consistent developmen
 code .
 # Select "Reopen in Container" when prompted
 
-# Using GitHub Codespaces  
+# Using GitHub Codespaces
 # Click "Code" → "Codespaces" → "Create codespace"
 ```
 
