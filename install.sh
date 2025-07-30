@@ -638,42 +638,48 @@ log "INFO" "Setting up Vim plugins and themes..."
 safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
 safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
 
-# Vim plugins configuration
-declare -A vim_plugins=(
-    ["vim-airline"]="https://github.com/vim-airline/vim-airline"
-    ["nerdtree"]="https://github.com/preservim/nerdtree.git"
-    ["fzf"]="https://github.com/junegunn/fzf.vim.git"
-    ["vim-gitgutter"]="https://github.com/airblade/vim-gitgutter.git"
-    ["vim-fugitive"]="https://github.com/tpope/vim-fugitive.git"
-    ["vim-terraform"]="https://github.com/hashivim/vim-terraform.git"
-)
+# Check bash version for associative array support
+if (( BASH_VERSINFO[0] < 4 )); then
+    log "WARN" "Bash version ${BASH_VERSION} detected. Associative arrays require Bash 4+. Skipping Vim plugin installation."
+    log "INFO" "To enable Vim plugin installation, please install Bash 4+ (e.g., 'brew install bash' on macOS)"
+else
+    # Vim plugins configuration
+    declare -A vim_plugins=(
+        ["vim-airline"]="https://github.com/vim-airline/vim-airline"
+        ["nerdtree"]="https://github.com/preservim/nerdtree.git"
+        ["fzf"]="https://github.com/junegunn/fzf.vim.git"
+        ["vim-gitgutter"]="https://github.com/airblade/vim-gitgutter.git"
+        ["vim-fugitive"]="https://github.com/tpope/vim-fugitive.git"
+        ["vim-terraform"]="https://github.com/hashivim/vim-terraform.git"
+    )
 
-# Vim themes configuration
-declare -A vim_themes=(
-    ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
-)
+    # Vim themes configuration
+    declare -A vim_themes=(
+        ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
+    )
 
-# Install/update Vim plugins
-for plugin in "${!vim_plugins[@]}"; do
-    plugin_dir="$TARGET_HOME/.vim/pack/plugin/start/$plugin"
-    clone_args=""
+    # Install/update Vim plugins
+    for plugin in "${!vim_plugins[@]}"; do
+        plugin_dir="$TARGET_HOME/.vim/pack/plugin/start/$plugin"
+        clone_args=""
 
-    # Use shallow clone for vim-polyglot
-    if [[ "$plugin" == "vim-polyglot" ]]; then
-        clone_args="--depth 1"
-    fi
+        # Use shallow clone for vim-polyglot
+        if [[ "$plugin" == "vim-polyglot" ]]; then
+            clone_args="--depth 1"
+        fi
 
-    git_clone_or_update_user "${vim_plugins[$plugin]}" "$plugin_dir" "$clone_args"
-done
+        git_clone_or_update_user "${vim_plugins[$plugin]}" "$plugin_dir" "$clone_args"
+    done
 
-# Special handling for vim-polyglot with shallow clone
-git_clone_or_update_user "https://github.com/sheerun/vim-polyglot" \
-    "$TARGET_HOME/.vim/pack/plugin/start/vim-polyglot" "--depth 1"
+    # Special handling for vim-polyglot with shallow clone
+    git_clone_or_update_user "https://github.com/sheerun/vim-polyglot" \
+        "$TARGET_HOME/.vim/pack/plugin/start/vim-polyglot" "--depth 1"
 
-# Install/update Vim themes
-for theme in "${!vim_themes[@]}"; do
-    git_clone_or_update_user "${vim_themes[$theme]}" "$TARGET_HOME/.vim/pack/themes/start/$theme"
-done
+    # Install/update Vim themes
+    for theme in "${!vim_themes[@]}"; do
+        git_clone_or_update_user "${vim_themes[$theme]}" "$TARGET_HOME/.vim/pack/themes/start/$theme"
+    done
+fi
 
 log "INFO" "Vim plugins and themes set up successfully"
 
@@ -730,19 +736,31 @@ fi
 log "INFO" "Setting up Zsh plugins..."
 safe_mkdir_user "$oh_my_zsh_dir/custom/plugins"
 
-# Zsh plugins configuration
-declare -A zsh_plugins=(
-    ["zsh-autosuggestions"]="https://github.com/zsh-users/zsh-autosuggestions.git"
-    ["zsh-syntax-highlighting"]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
-    ["conda-zsh-completion"]="https://github.com/conda-incubator/conda-zsh-completion.git"
-    ["zsh-tfenv"]="https://github.com/cda0/zsh-tfenv.git"
-    ["zsh-aliases-lsd"]="https://github.com/yuhonas/zsh-aliases-lsd.git"
-)
+# Check bash version for associative array support
+if (( BASH_VERSINFO[0] >= 4 )); then
+    # Zsh plugins configuration
+    declare -A zsh_plugins=(
+        ["zsh-autosuggestions"]="https://github.com/zsh-users/zsh-autosuggestions.git"
+        ["zsh-syntax-highlighting"]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
+        ["conda-zsh-completion"]="https://github.com/conda-incubator/conda-zsh-completion.git"
+        ["zsh-tfenv"]="https://github.com/cda0/zsh-tfenv.git"
+        ["zsh-aliases-lsd"]="https://github.com/yuhonas/zsh-aliases-lsd.git"
+    )
 
-# Install/update Zsh plugins
-for plugin in "${!zsh_plugins[@]}"; do
-    git_clone_or_update_user "${zsh_plugins[$plugin]}" "$oh_my_zsh_dir/custom/plugins/$plugin"
-done
+    # Install/update Zsh plugins
+    for plugin in "${!zsh_plugins[@]}"; do
+        git_clone_or_update_user "${zsh_plugins[$plugin]}" "$oh_my_zsh_dir/custom/plugins/$plugin"
+    done
+else
+    log "WARN" "Bash version ${BASH_VERSION} detected. Installing Zsh plugins individually without associative arrays."
+    
+    # Install plugins individually
+    git_clone_or_update_user "https://github.com/zsh-users/zsh-autosuggestions.git" "$oh_my_zsh_dir/custom/plugins/zsh-autosuggestions"
+    git_clone_or_update_user "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$oh_my_zsh_dir/custom/plugins/zsh-syntax-highlighting"
+    git_clone_or_update_user "https://github.com/conda-incubator/conda-zsh-completion.git" "$oh_my_zsh_dir/custom/plugins/conda-zsh-completion"
+    git_clone_or_update_user "https://github.com/cda0/zsh-tfenv.git" "$oh_my_zsh_dir/custom/plugins/zsh-tfenv"
+    git_clone_or_update_user "https://github.com/yuhonas/zsh-aliases-lsd.git" "$oh_my_zsh_dir/custom/plugins/zsh-aliases-lsd"
+fi
 
 log "INFO" "Downloading Azure CLI completion..."
 az_completion_file="$oh_my_zsh_dir/custom/az.zsh"
