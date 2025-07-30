@@ -1,129 +1,69 @@
-# Cloud-Init Integration Guide
+# Personal Dotfiles
 
-This document explains how to use the enhanced `install.sh` script with cloud-init for automated dotfiles installation.
+A portable developer environment configuration repository for rapid, reproducible setup across machines, dev containers, and cloud-init automation.
 
-## Overview
+## 🚀 Quick Start
 
-The enhanced script now supports both manual execution and automated cloud-init deployment with proper user handling, permission management, and unattended operation.
-
-## Usage Scenarios
-
-### 1. Manual Installation (Current User)
 ```bash
-./install.sh
+# Clone the repository
+git clone https://github.com/40docs/dotfiles.git
+cd dotfiles
+
+# Install all configurations and tools
+bash install.sh
 ```
 
-### 2. Manual Installation (Specific User)
+## 📁 What's Included
+
+### Configuration Files
+- **`.vimrc`** - Vim editor configuration with plugins and themes
+- **`.tmux.conf`** - Terminal multiplexer settings
+- **`.zshrc`** - Zsh shell configuration 
+- **`.p10k.zsh`** - Powerlevel10k prompt theme
+- **`.digrc`** - DNS lookup tool configuration
+- **`.opencommit`** - AI-powered commit message configuration
+- **`.act`** - GitHub Actions local runner configuration
+
+### Development Tools
+- **VSCode Settings** (`.vscode/`) - Editor preferences and extensions
+- **PowerShell Profile** - Cross-platform PowerShell configuration
+- **iTerm2 Colors** - Terminal color scheme
+- **Oh My Posh Theme** - Cross-shell prompt customization
+
+### Automated Setup
+- **Vim Plugins** - airline, nerdtree, fzf, gitgutter, fugitive, polyglot, terraform
+- **Zsh Plugins** - autosuggestions, syntax-highlighting, conda completion, tfenv, lsd aliases
+- **Development Tools** - tfenv (Terraform version manager), lsd (modern ls), fonts
+
+## 🔧 Installation Features
+
+- **🤖 Fully Automated** - No user prompts, perfect for CI/CD and cloud-init
+- **📊 Verbose Logging** - All errors and progress visible in logs  
+- **🔄 Idempotent** - Safe to run multiple times
+- **🌐 Cross-Platform** - Handles Linux, macOS, and cloud environments
+- **⚡ Cloud-Ready** - Environment variable handling for automated deployments
+
+## 🐳 Dev Container Support
+
+This repository includes a dev container configuration for consistent development environments:
+
 ```bash
-sudo ./install.sh --user ubuntu
+# Using VS Code
+code .
+# Select "Reopen in Container" when prompted
+
+# Using GitHub Codespaces  
+# Click "Code" → "Codespaces" → "Create codespace"
 ```
 
-### 3. Cloud-Init Installation
-```bash
-./install.sh --cloud-init --user ubuntu
-```
+The dev container uses `ghcr.io/40docs/devcontainer:latest` with all tools pre-installed.
 
-### 4. Environment Variable Override
-```bash
-sudo DOTFILES_USER=myuser ./install.sh
-```
+## ☁️ Cloud-Init Integration
 
-## Cloud-Init Integration
-
-### Basic Cloud-Init Configuration
-
-Add this to your cloud-init configuration file:
+Perfect for automated server setup and cloud deployments:
 
 ```yaml
 #cloud-config
-users:
-  - name: ubuntu
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-
-packages:
-  - git
-  - curl
-  - zsh
-
-runcmd:
-  - |
-    # Clone dotfiles repository
-    cd /tmp
-    git clone https://github.com/yourusername/dotfiles.git
-    cd dotfiles
-    
-    # Run installation for ubuntu user
-    ./install.sh --cloud-init --user ubuntu
-    
-    # Cleanup
-    cd /
-    rm -rf /tmp/dotfiles
-```
-
-### Advanced Cloud-Init with Custom Repository
-
-```yaml
-#cloud-config
-users:
-  - name: devuser
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/zsh
-    groups: [docker, sudo]
-
-packages:
-  - git
-  - curl
-  - zsh
-  - docker.io
-
-write_files:
-  - path: /tmp/install-dotfiles.sh
-    permissions: '0755'
-    content: |
-      #!/bin/bash
-      set -euo pipefail
-      
-      # Clone your dotfiles
-      git clone https://github.com/yourusername/dotfiles.git /tmp/dotfiles
-      cd /tmp/dotfiles
-      
-      # Install for specific user
-      DOTFILES_USER=devuser ./install.sh --cloud-init
-      
-      # Cleanup
-      rm -rf /tmp/dotfiles
-
-runcmd:
-  - /tmp/install-dotfiles.sh
-```
-
-### Terraform Example
-
-```hcl
-resource "aws_instance" "dev_server" {
-  ami           = "ami-0abcdef1234567890"
-  instance_type = "t3.micro"
-  
-  user_data = templatefile("${path.module}/cloud-init.yaml", {
-    dotfiles_repo = "https://github.com/yourusername/dotfiles.git"
-    target_user   = "ubuntu"
-  })
-
-  tags = {
-    Name = "DevServer"
-  }
-}
-```
-
-With `cloud-init.yaml`:
-```yaml
-#cloud-config
-users:
-  - name: ${target_user}
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/zsh
-
 packages:
   - git
   - curl
@@ -132,147 +72,78 @@ packages:
 runcmd:
   - |
     cd /tmp
-    git clone ${dotfiles_repo} dotfiles
+    git clone https://github.com/40docs/dotfiles.git
     cd dotfiles
-    ./install.sh --cloud-init --user ${target_user}
-    cd /
+    bash install.sh
     rm -rf /tmp/dotfiles
 ```
 
-## Environment Variables
+## 🔍 What Gets Installed
 
-The script supports several environment variables for configuration:
+### Shell Environment
+- **Oh My Zsh** with custom plugins and themes
+- **Oh My Posh** prompt with Powerlevel10k theme
+- **Meslo Nerd Font** for proper icon display
+- **Azure CLI completion** and auto-upgrade configuration
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DOTFILES_USER` | Target user for installation | `ubuntu` |
-| `DOTFILES_HOME` | Target home directory | `/home/ubuntu` |
-| `DEBUG` | Enable debug mode | `1` |
-| `CI` | Indicates CI/automation environment | `true` |
+### Development Tools
+- **Terraform Version Manager (tfenv)** for managing Terraform versions
+- **Modern ls replacement (lsd)** with enhanced file listing
+- **Z jump tool** for fast directory navigation
+- **Various Zsh productivity plugins**
 
-## Features for Cloud-Init
+### Editor Setup
+- **Vim** with comprehensive plugin ecosystem
+- **VSCode** settings and preferences
+- **Tmux** terminal multiplexer configuration
 
-### 1. **User Detection and Switching**
-- Automatically detects cloud-init execution context
-- Handles user switching with proper permission management
-- Supports running as root with target user specification
+### Cloud & DevOps
+- **PowerShell profiles** for both Azure and standard environments
+- **Conda initialization** (if present)
+- **Azure CLI** optimization
 
-### 2. **Ownership Management**
-- Automatically sets correct file ownership when run as root
-- Preserves permissions and security contexts
-- Creates proper directory structures
+## 🛠️ Customization
 
-### 3. **Network Resilience**
-- Retry logic for network operations with exponential backoff
-- Handles temporary connectivity issues during cloud instance startup
-- Graceful degradation on network failures
+The script automatically detects your environment and adapts:
 
-### 4. **Unattended Operation**
-- No interactive prompts or user input required
-- Comprehensive logging for troubleshooting
-- Clear error messages and exit codes
+- **Platform Detection** - Linux-specific tools only install on Linux
+- **Environment Awareness** - Different PowerShell profiles for Azure vs standard
+- **Conditional Setup** - Only configures tools that are present (Conda, Azure CLI, etc.)
 
-### 5. **Error Handling**
-- Proper exit codes for automation integration
-- Comprehensive error logging with timestamps
-- Rollback capabilities with automatic backups
+## 📋 Requirements
 
-## Exit Codes
+- **bash** (for running the installer)
+- **curl** (for downloading tools and plugins)
+- **git** (for cloning repositories)
 
-| Code | Meaning | Description |
-|------|---------|-------------|
-| 0 | Success | Installation completed successfully |
-| 1 | General Error | Configuration or logic errors |
-| 2 | Network Error | Download or git operation failures |
-| 3 | Filesystem Error | Permission, disk space, or file operations |
-| 4 | Permission Error | User switching or access issues |
+Additional tools are installed automatically as needed.
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
-### Common Issues
-
-1. **Permission Denied**
-   ```bash
-   # Solution: Run with sudo or ensure proper user context
-   sudo ./install.sh --user ubuntu
-   ```
-
-2. **Network Timeouts**
-   ```bash
-   # Solution: The script automatically retries, but you can enable debug mode
-   DEBUG=1 ./install.sh --cloud-init --user ubuntu
-   ```
-
-3. **User Not Found**
-   ```bash
-   # Solution: Ensure the user exists before running the script
-   sudo useradd -m -s /bin/bash ubuntu
-   ./install.sh --user ubuntu
-   ```
-
-### Debug Mode
-
-Enable debug mode for verbose output:
+All operations redirect errors to stdout for easy debugging:
 
 ```bash
-DEBUG=1 ./install.sh --cloud-init --user ubuntu
+# Run with verbose output
+bash -x install.sh
+
+# Check specific sections
+bash install.sh 2>&1 | grep "ERROR\|FAIL"
 ```
 
-### Log Analysis
+The script provides detailed logging with context-specific messages for each installation step.
 
-The script outputs structured logs that can be easily parsed:
+## 🤝 Contributing
 
-```bash
-# Filter for errors
-./install.sh 2>&1 | grep "\[ERROR\]"
+Feel free to fork and customize for your own needs. The installation script follows clear patterns for adding new tools and configurations.
 
-# Filter for specific user operations
-./install.sh 2>&1 | grep "ubuntu"
-```
+## 📚 References
 
-## Security Considerations
+Inspired by and built upon best practices from:
+- [Jamie's Dev Setup](https://medium.com/@jamiekt/my-dev-setup-march-2022-e89d21b19fe6)
+- [VSCode DevContainer with Zsh](https://medium.com/@jamiekt/vscode-devcontainer-with-zsh-oh-my-zsh-and-agnoster-theme-8adf884ad9f6)
+- [VSCode Dev Containers Guide](https://benmatselby.dev/post/vscode-dev-containers/)
+- [Zsh in Docker](https://github.com/deluan/zsh-in-docker)
 
-1. **Repository Trust**: Only use trusted dotfiles repositories
-2. **User Permissions**: The script handles permissions correctly but verify your dotfiles don't contain sensitive data
-3. **Network Security**: All downloads use HTTPS
-4. **File Ownership**: Proper ownership is maintained when switching users
+---
 
-## Best Practices
-
-1. **Test First**: Always test your cloud-init configuration in a development environment
-2. **Version Pin**: Consider pinning specific versions of tools rather than using "latest"
-3. **Minimal Privileges**: Use the least privileged user possible
-4. **Logging**: Monitor cloud-init logs for installation status
-5. **Idempotency**: The script is designed to be run multiple times safely
-
-## Integration Examples
-
-### GitHub Actions (Self-Hosted Runner Setup)
-```yaml
-- name: Setup Dotfiles
-  run: |
-    git clone https://github.com/username/dotfiles.git
-    cd dotfiles
-    ./install.sh --user runner
-```
-
-### Docker Container
-```dockerfile
-FROM ubuntu:22.04
-
-RUN apt-get update && apt-get install -y git curl zsh sudo
-
-# Create user
-RUN useradd -m -s /bin/zsh developer
-RUN echo 'developer ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# Install dotfiles
-COPY . /tmp/dotfiles
-WORKDIR /tmp/dotfiles
-RUN ./install.sh --user developer
-
-USER developer
-WORKDIR /home/developer
-```
-
-This enhanced script provides a robust foundation for automated dotfiles deployment in any cloud or CI/CD environment.
+**💡 Pro Tip**: After installation, restart your terminal or run `source ~/.zshrc` to apply all changes.
