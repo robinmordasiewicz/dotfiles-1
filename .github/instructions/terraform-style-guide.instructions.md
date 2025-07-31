@@ -40,10 +40,10 @@ As GitHub Copilot, you are an expert in Terraform infrastructure-as-code with de
 resource "aws_instance" "web" {
   ami           = "ami-0c55b159cbfafe1d0"
   instance_type = "t3.micro"
-  
+
   vpc_security_group_ids = [aws_security_group.web.id]
   subnet_id              = aws_subnet.public.id
-  
+
   tags = {
     Name        = "web-server"
     Environment = var.environment
@@ -92,7 +92,7 @@ resource "aws_instance" "example" {
 resource "google_compute_vpn_tunnel" "tunnel1" {
   name     = "tunnel-1"
   peer_ip  = "198.51.100.1"
-  
+
   # IKE version 2 required for this specific compliance requirement
   ike_version = 2
 }
@@ -205,7 +205,7 @@ variable "instance_count" {
   type        = number
   description = "Number of EC2 instances to create"
   default     = 2
-  
+
   validation {
     condition     = var.instance_count > 0 && var.instance_count <= 10
     error_message = "Instance count must be between 1 and 10."
@@ -260,14 +260,14 @@ locals {
     Project     = var.project_name
     ManagedBy   = "Terraform"
   }
-  
+
   name_prefix = "${var.project_name}-${var.environment}"
 }
 
 resource "aws_instance" "web" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.micro"
-  
+
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-web"
     Role = "web-server"
@@ -307,10 +307,10 @@ provider "aws" {
 ```hcl
 resource "aws_instance" "web" {
   count = var.instance_count
-  
+
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.micro"
-  
+
   tags = {
     Name = "web-${count.index + 1}"
   }
@@ -338,11 +338,11 @@ variable "web_servers" {
 
 resource "aws_instance" "web" {
   for_each = var.web_servers
-  
+
   ami           = data.aws_ami.ubuntu.id
   instance_type = each.value.instance_type
   subnet_id     = each.value.subnet_id
-  
+
   tags = {
     Name = each.key
   }
@@ -360,13 +360,13 @@ resource "aws_instance" "web" {
 ```hcl
 terraform {
   required_version = ">= 1.6"
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    
+
     random = {
       source  = "hashicorp/random"
       version = "~> 3.1"
@@ -399,7 +399,7 @@ resource "aws_db_instance" "main" {
   engine             = "postgres"
   engine_version     = "13.7"
   instance_class     = "db.t3.micro"
-  
+
   # Reference secret from AWS Secrets Manager
   password = data.aws_secretsmanager_secret_version.db_password.secret_string
 }
@@ -421,17 +421,17 @@ resource "aws_db_instance" "main" {
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 3.0"
-  
+
   name = "${local.name_prefix}-vpc"
   cidr = "10.0.0.0/16"
-  
+
   azs             = ["us-west-2a", "us-west-2b", "us-west-2c"]
   private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
   public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
-  
+
   enable_nat_gateway = true
   enable_vpn_gateway = false
-  
+
   tags = local.common_tags
 }
 ```

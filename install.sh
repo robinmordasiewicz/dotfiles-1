@@ -127,7 +127,7 @@ setup_target_user() {
                 else
                     min_uid=1000
                 fi
-                
+
                 TARGET_USER="$(get_user_by_uid "$min_uid")"
                 if [[ -z "$TARGET_USER" ]]; then
                     log "ERROR" "Cannot determine target user. Use --user or set DOTFILES_USER"
@@ -455,7 +455,7 @@ git_clone_or_update_user() {
             # Now pull the latest changes
             git pull --quiet 2>/dev/null || git reset --hard origin/\$default_branch --quiet 2>/dev/null || true
         }"
-        
+
         run_as_user_with_home "$update_cmd" || {
             log "WARN" "Git update failed for $target_dir, attempting fallback"
             # Fallback: try a simple pull, and if that fails, reset to origin
@@ -774,7 +774,7 @@ if (( BASH_VERSINFO[0] >= 4 )); then
     done
 else
     log "WARN" "Bash version ${BASH_VERSION} detected. Installing Zsh plugins individually without associative arrays."
-    
+
     # Install plugins individually
     git_clone_or_update_user "https://github.com/zsh-users/zsh-autosuggestions.git" "$oh_my_zsh_dir/custom/plugins/zsh-autosuggestions"
     git_clone_or_update_user "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$oh_my_zsh_dir/custom/plugins/zsh-syntax-highlighting"
