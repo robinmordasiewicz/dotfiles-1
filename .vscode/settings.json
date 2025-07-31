@@ -8,10 +8,6 @@
   "chat.instructionsFilesLocations": {
     "instructions": true
   },
-  "editor.rulers": [
-    100
-  ],
-  "github.copilot.chat.agent.thinkingTool": true,
   "chat.tools.autoApprove": true,
   "dotnetAcquisitionExtension.existingDotnetPath": [
     {
@@ -28,8 +24,12 @@
   "workbench.editor.enablePreview": false,
   "workbench.startupEditor": "none",
   "workbench.tips.enabled": false,
+  "workbench.welcomePage.walkthroughs.openOnInstall": false,
+  "workbench.welcomePage.enabled": false,
   "files.autoSave": "onWindowChange",
   "extensions.ignoreRecommendations": false,
+  "extensions.autoUpdate": true,
+  "update.showReleaseNotes": false,
   "files.eol": "\n",
   "files.insertFinalNewline": true,
   "files.trimTrailingWhitespace": true,
@@ -42,7 +42,7 @@
     "*.instructions.md": "markdown",
     "*.prompt.md": "markdown"
   },
-  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.defaultProfile.linux": "zsh",
   "terminal.integrated.profiles.linux": {
     "bash": {
       "path": "/bin/bash"
@@ -63,7 +63,7 @@
       "path": "/usr/bin/zsh"
     }
   },
-  "terminal.integrated.suggest.enabled": true,
+  "remote.portForwarding.useLocalServer": true,
   "remote.autoForwardPorts": true,
   "remote.autoForwardPortsSource": "output",
   "github.copilot.chat.commitMessageGeneration.instructions": [
@@ -113,7 +113,7 @@
       "text": "Example: feat(api)!: ✨ Change authentication method"
     },
     {
-      "text": "Example with body: feat(auth): ✨ Add OAuth2 support\\n\\n- Implement Google OAuth2 provider\\n- Add user session management\\n- Update security policies\\n\\nCloses #123"
+      "text": "Example with body: feat(auth): ✨ Add OAuth2 support\n\n- Implement Google OAuth2 provider\n- Add user session management\n- Update security policies\n\nCloses #123"
     }
   ]
 }
