@@ -541,6 +541,20 @@ for shellrc in "$TARGET_HOME/.zshrc" "$TARGET_HOME/.bashrc"; do
                 fi
             fi
         fi
+
+        # Add GitHub CLI pager configuration (disable pager for headless environments)
+        gh_pager_export='export GH_PAGER='
+        if ! grep -q "export GH_PAGER=" "$shellrc"; then
+            log "INFO" "Adding GitHub CLI pager configuration to $shellrc"
+            echo "$gh_pager_export" >> "$shellrc"
+
+            # Set proper ownership if running as root
+            if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+                chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$shellrc"
+            fi
+        else
+            log "INFO" "GitHub CLI pager configuration already exists in $shellrc"
+        fi
     fi
 done
 
