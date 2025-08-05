@@ -1,6 +1,7 @@
 {
   "recommendations": [
     "anderson.vscode-extension-paste-image",
+    "anthropic.claude-code",
     "alexcvzz.vscode-sqlite",
     "amazonwebservices.aws-toolkit-vscode",
     "amazonwebservices.amazon-q-vscode",
