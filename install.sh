@@ -780,6 +780,7 @@ if (( BASH_VERSINFO[0] >= 4 )); then
         ["conda-zsh-completion"]="https://github.com/conda-incubator/conda-zsh-completion.git"
         ["zsh-tfenv"]="https://github.com/cda0/zsh-tfenv.git"
         ["zsh-aliases-lsd"]="https://github.com/yuhonas/zsh-aliases-lsd.git"
+        ["zsh-github-copilot"]="https://github.com/loiccoyle/zsh-github-copilot.git"
     )
 
     # Install/update Zsh plugins
@@ -795,6 +796,7 @@ else
     git_clone_or_update_user "https://github.com/conda-incubator/conda-zsh-completion.git" "$oh_my_zsh_dir/custom/plugins/conda-zsh-completion"
     git_clone_or_update_user "https://github.com/cda0/zsh-tfenv.git" "$oh_my_zsh_dir/custom/plugins/zsh-tfenv"
     git_clone_or_update_user "https://github.com/yuhonas/zsh-aliases-lsd.git" "$oh_my_zsh_dir/custom/plugins/zsh-aliases-lsd"
+    git_clone_or_update_user "https://github.com/loiccoyle/zsh-github-copilot.git" "$oh_my_zsh_dir/custom/plugins/zsh-github-copilot"
 fi
 
 log "INFO" "Downloading Azure CLI completion..."
@@ -820,7 +822,7 @@ tmpfile=$(mktemp) || {
 # Ensure cleanup of temporary file
 trap 'rm -f "$tmpfile"' EXIT
 
-if sed 's/^plugins=.*$/plugins=(git zsh-syntax-highlighting zsh-autosuggestions ubuntu jsontools gh common-aliases conda-zsh-completion zsh-aliases-lsd zsh-tfenv z pip docker)/' "$zshrc_file" > "$tmpfile"; then
+if sed 's/^plugins=.*$/plugins=(git zsh-syntax-highlighting zsh-autosuggestions ubuntu jsontools gh common-aliases conda-zsh-completion zsh-aliases-lsd zsh-tfenv z pip docker zsh-github-copilot)/' "$zshrc_file" > "$tmpfile"; then
     mv "$tmpfile" "$zshrc_file" || {
         log "ERROR" "Failed to update .zshrc"
         exit 3
