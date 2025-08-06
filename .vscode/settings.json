@@ -1,4 +1,5 @@
 {
+  "application.shellEnvironmentResolutionTimeout": "45",
   "chat.modeFilesLocations": {
     "chatmodes": true
   },
