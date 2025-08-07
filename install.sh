@@ -479,7 +479,7 @@ fi
 ## --- MAIN SCRIPT EXECUTION ---
 
 # If $HOME is unset or set to 'None', set it to the current user's home directory
-if [[ -z "${HOME:-}" ]] || [[ "$HOME" == "None" ]]; then
+if [[ -z "${HOME:-}" ]] || [[ "${HOME:-}" == "None" ]]; then
     current_user="$(whoami)"
     home_dir="$(get_user_home "$current_user")"
     export HOME="$home_dir"
