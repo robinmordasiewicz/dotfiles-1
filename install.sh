@@ -610,6 +610,8 @@ log "INFO" "Working directory: ${DOTFILEDIR}"
 
 log "INFO" "Copying configuration files to home directory..."
 
+sed -i 's/^ZSH_THEME="[^"]*"/ZSH_THEME="agnoster"/' ~/.zshrc
+
 # List of configuration files to copy
 declare -a config_files=(
     ".vimrc"
@@ -885,17 +887,17 @@ if [[ -f "$oh_my_posh_bin" ]]; then
     run_as_user_with_home "'$oh_my_posh_bin' disable notice"
 fi
 
-log "INFO" "Configuring Oh My Posh in shell configurations..."
+#log "INFO" "Configuring Oh My Posh in shell configurations..."
 # Configure Oh My Posh for zsh
-oh_my_posh_zsh_line='eval "$(oh-my-posh init zsh --config ~/.oh-my-posh/themes/powerlevel10k.omp.json)"'
-if ! grep -qxF "$oh_my_posh_zsh_line" "$zshrc_file" 2>/dev/null; then
-    echo "$oh_my_posh_zsh_line" >> "$zshrc_file"
-
-    # Set proper ownership if running as root
-    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
-        chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
-    fi
-fi
+#oh_my_posh_zsh_line='eval "$(oh-my-posh init zsh --config ~/.oh-my-posh/themes/powerlevel10k.omp.json)"'
+#if ! grep -qxF "$oh_my_posh_zsh_line" "$zshrc_file" 2>/dev/null; then
+#    echo "$oh_my_posh_zsh_line" >> "$zshrc_file"
+#
+#    # Set proper ownership if running as root
+#    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+#        chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+#    fi
+#fi
 
 log "INFO" "Configuring Conda (if available)..."
 if command_exists conda; then
