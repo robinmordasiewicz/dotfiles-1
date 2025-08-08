@@ -832,28 +832,30 @@ cd "${DOTFILEDIR}" || {
     exit 1
 }
 
-# Use atomic file replacement for .zshrc modification
-tmpfile=$(mktemp) || {
-    log "ERROR" "Failed to create temporary file"
-    exit 3
-}
 
-# Ensure cleanup of temporary file
-trap 'rm -f "$tmpfile"' EXIT
-
-if sed 's/^plugins=.*$/plugins=(git zsh-syntax-highlighting zsh-autosuggestions ubuntu jsontools gh common-aliases conda-zsh-completion zsh-aliases-lsd zsh-tfenv z pip docker)/' "$zshrc_file" > "$tmpfile"; then
-    mv "$tmpfile" "$zshrc_file" || {
-        log "ERROR" "Failed to update .zshrc"
+# Only attempt to modify plugins line if $zshrc_file exists
+if [[ -f "$zshrc_file" ]]; then
+    tmpfile=$(mktemp) || {
+        log "ERROR" "Failed to create temporary file"
         exit 3
     }
-
-    # Set proper ownership if running as root
-    if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
-        chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+    # Ensure cleanup of temporary file
+    trap 'rm -f "$tmpfile"' EXIT
+    if sed 's/^plugins=.*$/plugins=(git zsh-syntax-highlighting zsh-autosuggestions ubuntu jsontools gh common-aliases conda-zsh-completion zsh-aliases-lsd zsh-tfenv z pip docker)/' "$zshrc_file" > "$tmpfile"; then
+        mv "$tmpfile" "$zshrc_file" || {
+            log "ERROR" "Failed to update .zshrc"
+            exit 3
+        }
+        # Set proper ownership if running as root
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$zshrc_file"
+        fi
+    else
+        log "ERROR" "Failed to modify .zshrc content"
+        exit 3
     fi
 else
-    log "ERROR" "Failed to modify .zshrc content"
-    exit 3
+    log "WARN" "$zshrc_file not found, skipping plugins configuration update."
 fi
 
 log "INFO" "Zsh plugins configured successfully"
