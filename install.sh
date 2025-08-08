@@ -680,6 +680,16 @@ else
     log "WARN" "$claude_settings_src not found, skipping Claude settings copy."
 fi
 
+# Copy mcp.json if present
+claude_mcp_src="./.claude/mcp.json"
+claude_mcp_dest="$claude_dir/mcp.json"
+if [[ -f "$claude_mcp_src" ]]; then
+    safe_copy_user "$claude_mcp_src" "$claude_mcp_dest"
+    log "INFO" "Copied $claude_mcp_src to $claude_mcp_dest."
+else
+    log "WARN" "$claude_mcp_src not found, skipping Claude MCP config copy."
+fi
+
 log "INFO" "Setting up VSCode configuration..."
 vscode_dir="$TARGET_HOME/.vscode"
 
