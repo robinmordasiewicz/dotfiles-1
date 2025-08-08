@@ -631,6 +631,25 @@ done
 
 log "INFO" "Configuration files copied successfully"
 
+# --- Claude config setup ---
+claude_dir="$TARGET_HOME/.claude"
+claude_settings_src="./claude/settings.json"
+claude_settings_dest="$claude_dir/settings.json"
+
+# Create ~/.claude if it does not exist
+if [[ ! -d "$claude_dir" ]]; then
+    safe_mkdir_user "$claude_dir"
+    log "INFO" "Created $claude_dir directory."
+fi
+
+# Copy settings.json if present
+if [[ -f "$claude_settings_src" ]]; then
+    safe_copy_user "$claude_settings_src" "$claude_settings_dest"
+    log "INFO" "Copied $claude_settings_src to $claude_settings_dest."
+else
+    log "WARN" "$claude_settings_src not found, skipping Claude settings copy."
+fi
+
 log "INFO" "Setting up VSCode configuration..."
 vscode_dir="$TARGET_HOME/.vscode"
 
