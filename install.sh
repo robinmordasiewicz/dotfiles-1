@@ -246,6 +246,136 @@ install_plugin_collection() {
     done
 }
 
+# Find Claude binary across different installation methods
+find_claude_binary() {
+    local claude_path=""
+    
+    # Common locations to check for Claude binary
+    local possible_paths=(
+        "/opt/homebrew/bin/claude"          # Homebrew on Apple Silicon Mac
+        "/usr/local/bin/claude"             # Homebrew on Intel Mac or manual install
+        "$HOME/.local/bin/claude"           # Local user installation
+        "$TARGET_HOME/.local/bin/claude"    # Target user local installation
+        "/usr/bin/claude"                   # System-wide installation
+        "/bin/claude"                       # System binary directory
+    )
+    
+    # Check versioned installation directories
+    local version_dirs=(
+        "$HOME/.local/share/claude/versions"
+        "$TARGET_HOME/.local/share/claude/versions"
+        "$HOME/.claude/versions"
+        "$TARGET_HOME/.claude/versions"
+    )
+    
+    # First check common direct paths
+    for path in "${possible_paths[@]}"; do
+        if [[ -f "$path" && -x "$path" ]]; then
+            claude_path="$path"
+            log "INFO" "Found Claude binary at: $claude_path"
+            echo "$claude_path"
+            return 0
+        fi
+    done
+    
+    # Check versioned installations
+    for version_dir in "${version_dirs[@]}"; do
+        if [[ -d "$version_dir" ]]; then
+            # Find the most recent version directory
+            local latest_version
+            latest_version=$(find "$version_dir" -mindepth 1 -maxdepth 1 -type d -name "v*" | sort -V | tail -1)
+            if [[ -n "$latest_version" && -f "$latest_version/claude" && -x "$latest_version/claude" ]]; then
+                claude_path="$latest_version/claude"
+                log "INFO" "Found Claude binary at: $claude_path"
+                echo "$claude_path"
+                return 0
+            fi
+            
+            # Also check for binaries directly in version subdirectories
+            local claude_in_version
+            claude_in_version=$(find "$version_dir" -name "claude" -type f -executable | head -1)
+            if [[ -n "$claude_in_version" ]]; then
+                claude_path="$claude_in_version"
+                log "INFO" "Found Claude binary at: $claude_path"
+                echo "$claude_path"
+                return 0
+            fi
+        fi
+    done
+    
+    # Check if claude is in PATH
+    if command_exists claude; then
+        claude_path=$(command -v claude)
+        log "INFO" "Found Claude binary in PATH: $claude_path"
+        echo "$claude_path"
+        return 0
+    fi
+    
+    log "WARN" "Claude binary not found in any expected locations"
+    return 1
+}
+
+# Setup Claude binary symlink in ~/.local/bin
+setup_claude_symlink() {
+    local claude_binary_path
+    local symlink_path="$TARGET_HOME/.local/bin/claude"
+    
+    # Ensure ~/.local/bin exists
+    safe_mkdir_user "$TARGET_HOME/.local/bin"
+    
+    # Find the Claude binary
+    claude_binary_path=$(find_claude_binary)
+    if [[ -z "$claude_binary_path" ]]; then
+        log "WARN" "Claude binary not found. Skipping symlink creation."
+        log "INFO" "If you install Claude later, you can create the symlink manually:"
+        log "INFO" "  ln -sf /path/to/claude ~/.local/bin/claude"
+        return 0
+    fi
+    
+    # If the symlink target is already ~/.local/bin/claude, don't create a recursive symlink
+    if [[ "$claude_binary_path" == "$symlink_path" ]]; then
+        log "INFO" "Claude binary is already at $symlink_path, no symlink needed"
+        return 0
+    fi
+    
+    # Remove existing symlink or file if it exists
+    if [[ -e "$symlink_path" || -L "$symlink_path" ]]; then
+        if [[ -L "$symlink_path" ]]; then
+            local current_target
+            current_target=$(readlink "$symlink_path")
+            if [[ "$current_target" == "$claude_binary_path" ]]; then
+                log "INFO" "Claude symlink already points to correct location: $claude_binary_path"
+                return 0
+            fi
+            log "INFO" "Removing existing Claude symlink (pointed to: $current_target)"
+        else
+            log "INFO" "Removing existing Claude file at $symlink_path"
+        fi
+        rm -f "$symlink_path"
+    fi
+    
+    # Create the symlink
+    log "INFO" "Creating Claude symlink: $symlink_path -> $claude_binary_path"
+    ln -sf "$claude_binary_path" "$symlink_path"
+    
+    # Set proper ownership if running as root
+    set_ownership "$symlink_path"
+    
+    # Verify the symlink works
+    if [[ -L "$symlink_path" && -x "$symlink_path" ]]; then
+        log "INFO" "Claude symlink created successfully"
+        # Test that the symlink works
+        if run_as_user_with_home "'$symlink_path' --version" >/dev/null 2>&1; then
+            log "INFO" "Claude symlink is functional"
+        else
+            log "WARN" "Claude symlink created but may not be functional"
+        fi
+    else
+        log "ERROR" "Failed to create functional Claude symlink"
+        return 1
+    fi
+}
+
 # Set up error trap
 trap 'handle_error $LINENO' ERR
 
@@ -746,6 +876,10 @@ copy_claude_directory "$claude_source_dir" "$claude_dir" "Claude Code configurat
 set_claude_permissions "$claude_dir"
 
 log "INFO" "Claude Code configuration setup completed"
+
+# Setup Claude binary symlink
+log "INFO" "Setting up Claude binary symlink..."
+setup_claude_symlink
 
 log "INFO" "Setting up VSCode configuration..."
 vscode_dir="$TARGET_HOME/.vscode"
