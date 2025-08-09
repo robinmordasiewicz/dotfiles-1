@@ -315,6 +315,106 @@ find_claude_binary() {
     return 1
 }
 
+# Find GitHub CLI binary across different installation methods
+find_gh_binary() {
+    local gh_path=""
+    
+    # Common locations to check for gh binary
+    local possible_paths=(
+        "/opt/homebrew/bin/gh"          # Homebrew on Apple Silicon Mac
+        "/usr/local/bin/gh"             # Homebrew on Intel Mac or manual install
+        "/usr/bin/gh"                   # System package manager install (Linux)
+        "/bin/gh"                       # System binary directory
+        "$HOME/.local/bin/gh"           # Local user installation
+        "$TARGET_HOME/.local/bin/gh"    # Target user local installation
+    )
+    
+    # Check common direct paths first
+    for path in "${possible_paths[@]}"; do
+        if [[ -f "$path" && -x "$path" ]]; then
+            gh_path="$path"
+            log "INFO" "Found GitHub CLI binary at: $gh_path"
+            echo "$gh_path"
+            return 0
+        fi
+    done
+    
+    # Check if gh is in PATH
+    if command_exists gh; then
+        gh_path=$(command -v gh)
+        log "INFO" "Found GitHub CLI binary in PATH: $gh_path"
+        echo "$gh_path"
+        return 0
+    fi
+    
+    log "WARN" "GitHub CLI binary not found in any expected locations"
+    return 1
+}
+
+# Update .gitconfig with dynamic gh path before copying
+setup_gitconfig_with_gh_path() {
+    local source_gitconfig=".gitconfig"
+    local target_gitconfig="$TARGET_HOME/.gitconfig"
+    local temp_gitconfig
+    temp_gitconfig=$(mktemp) || {
+        log "ERROR" "Failed to create temporary file for .gitconfig processing"
+        return 3
+    }
+    
+    # Ensure cleanup of temporary file
+    trap 'rm -f "$temp_gitconfig"' RETURN
+    
+    if [[ ! -f "$source_gitconfig" ]]; then
+        log "WARN" ".gitconfig not found in dotfiles, skipping GitHub CLI configuration"
+        return 0
+    fi
+    
+    # Find GitHub CLI binary
+    local gh_binary_path
+    gh_binary_path=$(find_gh_binary)
+    
+    if [[ -z "$gh_binary_path" ]]; then
+        log "WARN" "GitHub CLI not found. Copying .gitconfig without updating gh paths."
+        log "INFO" "If you install GitHub CLI later, update the paths manually in .gitconfig"
+        # Copy original file without modification
+        safe_copy_user "$source_gitconfig" "$target_gitconfig"
+        return 0
+    fi
+    
+    log "INFO" "Updating .gitconfig with GitHub CLI path: $gh_binary_path"
+    
+    # Update the gh paths in .gitconfig - replace existing gh path with detected path
+    sed "s|helper = !/[^[:space:]]*/gh|helper = !$gh_binary_path|g" "$source_gitconfig" > "$temp_gitconfig" || {
+        log "ERROR" "Failed to update .gitconfig with gh path"
+        return 3
+    }
+    
+    # Copy the updated .gitconfig
+    if [[ -f "$target_gitconfig" ]]; then
+        local backup_ext
+        backup_ext=".backup.$(date +%Y%m%d_%H%M%S)"
+        log "INFO" "Backing up existing .gitconfig: $target_gitconfig -> $target_gitconfig$backup_ext"
+        cp "$target_gitconfig" "$target_gitconfig$backup_ext"
+        set_ownership "$target_gitconfig$backup_ext"
+    fi
+    
+    log "INFO" "Copying updated .gitconfig -> $target_gitconfig"
+    cp "$temp_gitconfig" "$target_gitconfig" || {
+        log "ERROR" "Failed to copy updated .gitconfig"
+        return 3
+    }
+    
+    # Set proper ownership
+    set_ownership "$target_gitconfig"
+    
+    # Verify the update worked
+    if grep -q "$gh_binary_path" "$target_gitconfig"; then
+        log "INFO" ".gitconfig updated successfully with gh path: $gh_binary_path"
+    else
+        log "WARN" ".gitconfig may not have been updated correctly"
+    fi
+}
+
 # Setup Claude binary symlink in ~/.local/bin
 setup_claude_symlink() {
     local claude_binary_path
@@ -802,7 +902,12 @@ declare -a config_files=(
 # Copy configuration files safely
 for config_file in "${config_files[@]}"; do
     if [[ -f "$config_file" ]]; then
-        safe_copy_user "$config_file" "$TARGET_HOME/$config_file"
+        # Special handling for .gitconfig to update gh paths dynamically
+        if [[ "$config_file" == ".gitconfig" ]]; then
+            setup_gitconfig_with_gh_path
+        else
+            safe_copy_user "$config_file" "$TARGET_HOME/$config_file"
+        fi
     else
         log "WARN" "Configuration file not found: $config_file"
     fi
