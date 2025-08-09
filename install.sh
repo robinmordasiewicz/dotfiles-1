@@ -448,6 +448,24 @@ safe_mkdir_user() {
     fi
 }
 
+# Set proper permissions and ownership for Claude directories
+set_claude_permissions() {
+    local claude_dir="$1"
+    
+    if [[ -d "$claude_dir" ]]; then
+        # Set directory permissions to 755 (readable by all, writable by owner)
+        find "$claude_dir" -type d -exec chmod 755 {} \;
+        
+        # Set file permissions to 644 (readable by all, writable by owner)
+        find "$claude_dir" -type f -exec chmod 644 {} \;
+        
+        # Set ownership recursively if running as root
+        set_ownership "$claude_dir" true
+        
+        log "INFO" "Set proper permissions and ownership for $claude_dir"
+    fi
+}
+
 # Copy file with proper ownership
 safe_copy_user() {
     local src="$1"
@@ -667,30 +685,64 @@ log "INFO" "Setting up Claude Code configuration..."
 claude_dir="$TARGET_HOME/.claude"
 claude_source_dir="./.claude"
 
-# Create ~/.claude if it does not exist
-if [[ ! -d "$claude_dir" ]]; then
-    safe_mkdir_user "$claude_dir"
-    log "INFO" "Created $claude_dir directory"
+# Function to copy Claude directory structure recursively
+copy_claude_directory() {
+    local src_dir="$1"
+    local dest_dir="$2"
+    local description="$3"
+    
+    if [[ ! -d "$src_dir" ]]; then
+        log "WARN" "Source directory $src_dir not found, skipping $description"
+        return 0
+    fi
+    
+    log "INFO" "Copying $description from $src_dir to $dest_dir"
+    
+    # Create destination directory if it doesn't exist
+    safe_mkdir_user "$dest_dir"
+    
+    # Use find to copy all files while preserving directory structure
+    # Exclude sensitive files that shouldn't be copied
+    find "$src_dir" -type f \( \
+        ! -name ".credentials.json" \
+        ! -path "*/logs/*" \
+        ! -path "*/shell-snapshots/*" \
+        ! -path "*/backups/*" \
+        ! -path "*/statsig/*" \
+        ! -path "*/todos/*" \
+        ! -path "*/projects/*" \
+        ! -name "*.backup.*" \
+    \) -print0 | while IFS= read -r -d '' src_file; do
+        # Calculate relative path from source directory
+        rel_path="${src_file#$src_dir/}"
+        dest_file="$dest_dir/$rel_path"
+        dest_subdir="$(dirname "$dest_file")"
+        
+        # Create subdirectory if needed
+        if [[ ! -d "$dest_subdir" ]]; then
+            safe_mkdir_user "$dest_subdir"
+        fi
+        
+        # Copy file with backup and proper ownership
+        safe_copy_user "$src_file" "$dest_file"
+        
+        log "INFO" "Copied Claude file: $rel_path"
+    done
+}
+
+# Backup existing .claude directory if it exists
+if [[ -d "$claude_dir" ]]; then
+    backup_ext=".backup.$(date +%Y%m%d_%H%M%S)"
+    log "INFO" "Backing up existing Claude configuration: $claude_dir -> $claude_dir$backup_ext"
+    mv "$claude_dir" "$claude_dir$backup_ext"
+    set_ownership "$claude_dir$backup_ext" true
 fi
 
-# List of Claude configuration files to copy
-declare -a claude_config_files=(
-    "settings.json"
-    "mcp.json"
-)
+# Copy the entire .claude directory structure (excluding sensitive files)
+copy_claude_directory "$claude_source_dir" "$claude_dir" "Claude Code configuration"
 
-# Copy Claude configuration files
-for config_file in "${claude_config_files[@]}"; do
-    source_file="$claude_source_dir/$config_file"
-    dest_file="$claude_dir/$config_file"
-    
-    if [[ -f "$source_file" ]]; then
-        safe_copy_user "$source_file" "$dest_file"
-        log "INFO" "Copied Claude $config_file configuration"
-    else
-        log "WARN" "Claude $config_file not found at $source_file, skipping"
-    fi
-done
+# Set proper permissions and ownership for the Claude directory
+set_claude_permissions "$claude_dir"
 
 log "INFO" "Claude Code configuration setup completed"
 

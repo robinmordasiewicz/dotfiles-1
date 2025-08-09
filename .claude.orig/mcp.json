@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "Perplexity": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "perplexity-mcp"
+      ],
+      "tools": ["*"],
+      "env": {
+        "PERPLEXITY_API_KEY": "${input:perplexity-api-key}",
+        "PERPLEXITY_MODEL": "sonar"
+      }
+    }
+  }
+}
