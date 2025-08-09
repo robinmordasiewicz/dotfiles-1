@@ -270,7 +270,18 @@ find_claude_binary() {
     
     # First check common direct paths
     for path in "${possible_paths[@]}"; do
-        if [[ -f "$path" && -x "$path" ]]; then
+        if [[ -L "$path" ]]; then
+            # Handle symlinks - check if target exists
+            if [[ -f "$path" && -x "$path" ]]; then
+                claude_path="$path"
+                log "INFO" "Found Claude binary at: $claude_path (symlink)"
+                echo "$claude_path"
+                return 0
+            else
+                log "WARN" "Found broken Claude symlink at: $path - removing"
+                rm -f "$path" 2>/dev/null || true
+            fi
+        elif [[ -f "$path" && -x "$path" ]]; then
             claude_path="$path"
             log "INFO" "Found Claude binary at: $claude_path"
             echo "$claude_path"

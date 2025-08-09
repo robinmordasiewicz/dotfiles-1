@@ -25,6 +25,25 @@
         "--rm",
         "hashicorp/terraform-mcp-server"
       ]
+    },
+    "microsoft-learn": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@microsoft/learn-mcp"
+      ],
+      "tools": ["*"]
+    },
+    "microsoft-azure": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@microsoft/azure-mcp"
+      ],
+      "tools": ["*"],
+      "env": {
+        "AZURE_AUTH_METHOD": "cli"
+      }
     }
   }
 }
