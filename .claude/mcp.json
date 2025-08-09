@@ -12,7 +12,7 @@
       ],
       "tools": ["*"],
       "env": {
-        "PERPLEXITY_API_KEY": "${input:perplexity-api-key}",
+        "PERPLEXITY_API_KEY": "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",
         "PERPLEXITY_MODEL": "sonar"
       }
     },
@@ -38,12 +38,51 @@
       "type": "stdio",
       "command": "npx",
       "args": [
-        "@microsoft/azure-mcp"
+        "@azure/mcp-darwin-arm64"
       ],
       "tools": ["*"],
       "env": {
         "AZURE_AUTH_METHOD": "cli"
       }
+    },
+    "magic": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@21st-dev/magic@latest"
+      ],
+      "tools": ["*"],
+      "env": {
+        "API_KEY": "test-key"
+      }
+    },
+    "context7": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "tools": ["*"]
+    },
+    "memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "tools": ["*"]
+    },
+    "sequential-thinking": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "tools": ["*"]
     }
   }
 }
