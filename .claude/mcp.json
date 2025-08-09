@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "mcp-installer": {
+      "command": "npx",
+      "args": [ "@anaisbetts/mcp-installer" ]
+    },
     "Perplexity": {
       "type": "stdio",
       "command": "uvx",
