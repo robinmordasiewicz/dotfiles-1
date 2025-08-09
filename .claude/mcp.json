@@ -11,6 +11,16 @@
         "PERPLEXITY_API_KEY": "${input:perplexity-api-key}",
         "PERPLEXITY_MODEL": "sonar"
       }
+    },
+    "terraform": {
+      "command": "docker",
+      "tools": ["*"],
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "hashicorp/terraform-mcp-server"
+      ]
     }
   }
 }
