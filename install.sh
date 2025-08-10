@@ -689,6 +689,7 @@ safe_mkdir_user() {
     fi
 }
 
+
 # Set proper permissions and ownership for Claude directories
 set_claude_permissions() {
     local claude_dir="$1"
@@ -845,7 +846,11 @@ setup_shell_config() {
             # Create a backup
             cp "$shellrc" "$shellrc.backup.$(date +%Y%m%d_%H%M%S)"
             # Replace hardcoded path with $HOME version
-            sed -i '' "s|export PATH=\$PATH:[^:]*${TARGET_USER}[^:]*\.local/bin|${home_localbin_export}|g" "$shellrc"
+            if [[ "$(uname)" == "Darwin" ]]; then
+                sed -i '' "s|export PATH=\$PATH:[^:]*${TARGET_USER}[^:]*\.local/bin|${home_localbin_export}|g" "$shellrc"
+            else
+                sed -i "s|export PATH=\$PATH:[^:]*${TARGET_USER}[^:]*\.local/bin|${home_localbin_export}|g" "$shellrc"
+            fi
             set_ownership "$shellrc"
         fi
     fi
@@ -896,7 +901,11 @@ log "INFO" "Copying configuration files to home directory..."
 
 # Update ZSH theme if .zshrc exists
 if [[ -f "$TARGET_HOME/.zshrc" ]]; then
-    sed -i '' 's/^ZSH_THEME="[^"]*"/ZSH_THEME="agnoster"/' "$TARGET_HOME/.zshrc"
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' 's/^ZSH_THEME="[^"]*"/ZSH_THEME="agnoster"/' "$TARGET_HOME/.zshrc"
+    else
+        sed -i 's/^ZSH_THEME="[^"]*"/ZSH_THEME="agnoster"/' "$TARGET_HOME/.zshrc"
+    fi
 fi
 
 # List of configuration files to copy
@@ -977,6 +986,7 @@ copy_claude_directory() {
     done
 }
 
+
 # Backup existing .claude directory if it exists
 if [[ -d "$claude_dir" ]]; then
     backup_ext=".backup.$(date +%Y%m%d_%H%M%S)"
@@ -987,6 +997,7 @@ fi
 
 # Copy the entire .claude directory structure (excluding sensitive files)
 copy_claude_directory "$claude_source_dir" "$claude_dir" "Claude Code configuration"
+
 
 # Set proper permissions and ownership for the Claude directory
 set_claude_permissions "$claude_dir"

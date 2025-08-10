@@ -12,7 +12,7 @@
       ],
       "tools": ["*"],
       "env": {
-        "PERPLEXITY_API_KEY": "<token-here>",
+        "PERPLEXITY_API_KEY": "${input:perplexity-api-key}",
         "PERPLEXITY_MODEL": "sonar"
       }
     },
@@ -83,6 +83,10 @@
         "@modelcontextprotocol/server-sequential-thinking"
       ],
       "tools": ["*"]
+    },
+    "tmux": {
+      "command": "npx",
+      "args": ["-y", "tmux-mcp"]
     }
   }
 }
