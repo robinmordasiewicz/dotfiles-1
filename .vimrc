@@ -5,7 +5,12 @@ set nocompatible
 " colo darkblue
 set t_Co=256
 set t_ut=
-colorscheme codedark
+try
+  colorscheme codedark
+catch /^Vim\%((\a\+)\)\=:E185/
+  " fallback to default if codedark not found
+  colorscheme desert
+endtry
 
 " Configuration vim Airline
 set laststatus=2
