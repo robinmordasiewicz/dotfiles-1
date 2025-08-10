@@ -12,7 +12,7 @@
       ],
       "tools": ["*"],
       "env": {
-        "PERPLEXITY_API_KEY": "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",
+        "PERPLEXITY_API_KEY": "<token-here>",
         "PERPLEXITY_MODEL": "sonar"
       }
     },
