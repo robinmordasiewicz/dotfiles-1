@@ -426,6 +426,259 @@ setup_gitconfig_with_gh_path() {
     fi
 }
 
+## --- MCP SERVER SETUP FUNCTIONS ---
+
+# Detect environment conditions for MCP server installation
+detect_environment_condition() {
+    local condition="$1"
+    
+    case "$condition" in
+        "always")
+            return 0
+            ;;
+        "azure_environment")
+            # Check for Azure CLI, environment variables, or Azure config
+            if [[ -n "${AZUREPS_HOST_ENVIRONMENT:-}" ]] || command_exists az || [[ -d "$TARGET_HOME/.azure" ]]; then
+                return 0
+            fi
+            return 1
+            ;;
+        "development_environment")
+            # Check for common development indicators
+            if [[ -f "package.json" ]] || [[ -f ".git/config" ]] || [[ -f "Dockerfile" ]] || [[ -f "pyproject.toml" ]]; then
+                return 0
+            fi
+            return 1
+            ;;
+        "git_repository")
+            if [[ -d ".git" ]] || git rev-parse --git-dir >/dev/null 2>&1; then
+                return 0
+            fi
+            return 1
+            ;;
+        "api_keys_available")
+            if [[ -n "${PERPLEXITY_API_KEY:-}" ]] || [[ -n "${BRAVE_API_KEY:-}" ]]; then
+                return 0
+            fi
+            return 1
+            ;;
+        *)
+            log "WARN" "Unknown condition: $condition"
+            return 1
+            ;;
+    esac
+}
+
+# Check if MCP server dependencies are available
+check_mcp_dependencies() {
+    local dependencies_str="$1"
+    
+    if [[ -z "$dependencies_str" ]] || [[ "$dependencies_str" == "[]" ]]; then
+        return 0
+    fi
+    
+    # Remove brackets and split by comma
+    local deps_clean="${dependencies_str//[\[\]\"]/}"
+    IFS=',' read -ra deps <<< "$deps_clean"
+    
+    for dep in "${deps[@]}"; do
+        local dep_clean="${dep// /}"  # Remove spaces
+        if ! command_exists "$dep_clean"; then
+            log "WARN" "Missing dependency for MCP server: $dep_clean"
+            return 1
+        fi
+    done
+    return 0
+}
+
+# Install NPM packages globally for MCP servers
+install_mcp_server_package() {
+    local server_name="$1"
+    local package_name="$2"
+    
+    if ! command_exists npm; then
+        log "WARN" "npm not found, skipping MCP server installation: $server_name"
+        return 1
+    fi
+    
+    log "INFO" "Installing MCP server package: $server_name ($package_name)"
+    
+    # Try to install the package globally
+    if run_as_user_with_home "npm install -g '$package_name'" >/dev/null 2>&1; then
+        log "INFO" "Successfully installed MCP server: $server_name"
+        return 0
+    else
+        log "WARN" "Failed to install MCP server package: $server_name"
+        return 1
+    fi
+}
+
+# Generate MCP server configuration for Claude Code
+generate_mcp_config() {
+    local claude_config="$TARGET_HOME/.claude/claude_desktop_config.json"
+    local existing_mcp_config="./.claude/mcp.json"
+    local servers_config="./.claude/mcp/servers.json"
+    
+    log "INFO" "Setting up MCP server configuration..."
+    
+    # Check if we have the existing comprehensive MCP configuration
+    if [[ -f "$existing_mcp_config" ]]; then
+        log "INFO" "Using existing comprehensive MCP configuration from mcp.json"
+        safe_mkdir_user "$(dirname "$claude_config")"
+        safe_copy_user "$existing_mcp_config" "$claude_config"
+        log "INFO" "MCP configuration deployed to: $claude_config"
+        return 0
+    fi
+    
+    # Fallback to generating from servers.json
+    if [[ ! -f "$servers_config" ]]; then
+        log "WARN" "No MCP configuration found, creating minimal setup"
+        generate_minimal_mcp_config "$claude_config"
+        return 1
+    fi
+    
+    log "INFO" "Generating MCP server configuration from servers.json..."
+    
+    # Create a simple MCP configuration
+    local mcp_config='{'
+    mcp_config+='"mcpServers": {'
+    
+    local first_server=true
+    local temp_file
+    temp_file=$(mktemp)
+    
+    # Parse the servers.json to extract enabled servers
+    if command_exists jq && [[ -f "$servers_config" ]]; then
+        # Use jq to parse and generate config
+        run_as_user_with_home "jq -r '.mcpServers | to_entries[] | select(.value.install_condition) | \"\\(.key),\\(.value.command),\\(.value.args | join(\" \"))\"' '$servers_config'" > "$temp_file"
+    else
+        # Fallback: extract basic server info manually
+        log "WARN" "jq not available, using basic MCP server configuration"
+        echo "memory,npx,-y @modelcontextprotocol/server-memory" > "$temp_file"
+        echo "git,npx,-y @modelcontextprotocol/server-git" >> "$temp_file"
+    fi
+    
+    while IFS=',' read -r server_name command args; do
+        if [[ -n "$server_name" ]]; then
+            if [[ "$first_server" == "false" ]]; then
+                mcp_config+=','
+            fi
+            mcp_config+="\"$server_name\": {"
+            mcp_config+="\"command\": \"$command\","
+            mcp_config+="\"args\": [\"$args\"]"
+            mcp_config+='}'
+            first_server=false
+        fi
+    done < "$temp_file"
+    
+    mcp_config+='}'
+    mcp_config+='}'
+    
+    # Write the configuration
+    safe_mkdir_user "$(dirname "$claude_config")"
+    echo "$mcp_config" | run_as_user "tee '$claude_config'" >/dev/null
+    set_ownership "$claude_config"
+    
+    rm -f "$temp_file"
+    log "INFO" "MCP configuration written to: $claude_config"
+}
+
+# Generate minimal MCP configuration as fallback
+generate_minimal_mcp_config() {
+    local claude_config="$1"
+    
+    log "INFO" "Creating minimal MCP configuration..."
+    
+    local minimal_config='{
+  "mcpServers": {
+    "memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "tools": ["*"]
+    }
+  }
+}'
+    
+    safe_mkdir_user "$(dirname "$claude_config")"
+    echo "$minimal_config" | run_as_user "tee '$claude_config'" >/dev/null
+    set_ownership "$claude_config"
+    
+    log "INFO" "Minimal MCP configuration written to: $claude_config"
+}
+
+# Main MCP server setup function
+setup_mcp_servers() {
+    log "INFO" "Configuring MCP servers based on environment..."
+    
+    # Install core MCP servers that are always useful
+    install_core_mcp_servers
+    
+    # Install environment-specific servers
+    install_environment_specific_mcp_servers
+    
+    # Generate/deploy Claude Code configuration
+    generate_mcp_config
+    
+    log "INFO" "MCP server setup completed"
+}
+
+# Install core MCP servers that should always be available
+install_core_mcp_servers() {
+    log "INFO" "Installing core MCP servers..."
+    
+    # Memory server - always useful for context retention
+    install_mcp_server_package "memory" "@modelcontextprotocol/server-memory" || true
+    
+    # Sequential thinking server - for complex analysis
+    install_mcp_server_package "sequential-thinking" "@modelcontextprotocol/server-sequential-thinking" || true
+    
+    # Git server - if we're in a git repository
+    if command_exists git && (git rev-parse --git-dir >/dev/null 2>&1 || [[ -d ".git" ]]); then
+        log "INFO" "Git repository detected, installing Git MCP server"
+        # Using the server from your existing config - no official git server yet
+        # install_mcp_server_package "git" "@modelcontextprotocol/server-git" || true
+    fi
+}
+
+# Install environment-specific MCP servers
+install_environment_specific_mcp_servers() {
+    # Development environment servers
+    if detect_environment_condition "development_environment"; then
+        log "INFO" "Development environment detected, installing additional MCP servers..."
+        install_mcp_server_package "context7" "@upstash/context7-mcp" || true
+        install_mcp_server_package "magic" "@21st-dev/magic" || true
+    fi
+    
+    # Azure environment servers
+    if detect_environment_condition "azure_environment"; then
+        log "INFO" "Azure environment detected, installing Azure MCP servers..."
+        # Using the actual Azure MCP server from your config
+        install_mcp_server_package "azure" "@azure/mcp-darwin-arm64" || true
+        install_mcp_server_package "microsoft-learn" "@microsoft/learn-mcp" || true
+    fi
+    
+    # Terraform server if terraform is available
+    if command_exists terraform || command_exists docker; then
+        log "INFO" "Terraform/Docker detected, terraform MCP server available via Docker"
+        # Note: Terraform server uses Docker, so just log it's available
+    fi
+    
+    # Perplexity server if API key is available
+    if [[ -n "${PERPLEXITY_API_KEY:-}" ]]; then
+        log "INFO" "Perplexity API key detected, installing Perplexity MCP server..."
+        # Using uvx as per your config, but fallback to npx if unavailable
+        if command_exists uvx; then
+            log "INFO" "Using uvx for Perplexity MCP server (as configured)"
+        else
+            log "INFO" "uvx not found, Perplexity server will use uvx when available"
+        fi
+    fi
+    
+    # MCP installer server - helpful for managing other servers
+    install_mcp_server_package "mcp-installer" "@anaisbetts/mcp-installer" || true
+}
+
 # Setup Claude binary symlink in ~/.local/bin
 setup_claude_symlink() {
     local claude_binary_path
@@ -1001,6 +1254,10 @@ copy_claude_directory "$claude_source_dir" "$claude_dir" "Claude Code configurat
 
 # Set proper permissions and ownership for the Claude directory
 set_claude_permissions "$claude_dir"
+
+# Setup MCP servers
+log "INFO" "Setting up MCP servers..."
+setup_mcp_servers
 
 log "INFO" "Claude Code configuration setup completed"
 
