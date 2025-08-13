@@ -1,0 +1,8 @@
+{
+  "autoUpdates": true,
+  "theme": "dark-daltonized",
+  "hasIdeOnboardingBeenShown": {
+    "vscode": true
+  },
+  "bypassPermissionsModeAccepted": true
+}

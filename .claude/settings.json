@@ -1,6 +1,18 @@
 {
   "permissions": {
     "allow": [
+      "mcp__git__git_status",
+      "mcp__git__git_set_working_dir",
+      "mcp__git__git_fetch",
+      "mcp__git__git_pull",
+      "mcp__git__git_branch",
+      "mcp__git__git_checkout",
+      "mcp__git__git_diff",
+      "mcp__git__git_log",
+      "mcp__git__git_add",
+      "mcp__git__git_commit",
+      "mcp__git__git_push",
+      "mcp__git__git_remote",
       "Bash",
       "Read",
       "Edit",
@@ -21,7 +33,6 @@
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
   },
-  "theme": "dark",
   "trustedFolders": [
     "~/40docs"
   ]
