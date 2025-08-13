@@ -1170,12 +1170,8 @@ setup_vscode_integration() {
 setup_vscode_integration "bash"
 setup_vscode_integration "zsh"
 
-log "INFO" "VSCode shell integration setup completed"
-
 log "INFO" "Starting dotfiles installation..."
 log "INFO" "Working directory: ${DOTFILEDIR}"
-
-log "INFO" "Copying configuration files to home directory..."
 
 # Update ZSH theme if .zshrc exists
 if [[ -f "$TARGET_HOME/.zshrc" ]]; then
@@ -1188,13 +1184,14 @@ fi
 
 # List of configuration files to copy
 declare -a config_files=(
-    ".vimrc"
-    ".opencommit"
     ".act"
-    ".tmux.conf"
-    ".p10k.zsh"
+    ".claude.json"
     ".digrc"
+    ".opencommit"
+    ".p10k.zsh"
+    ".tmux.conf"
     ".gitconfig"
+    ".vimrc"
 )
 
 # Copy configuration files safely
