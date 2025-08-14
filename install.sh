@@ -115,7 +115,12 @@ setup_target_user() {
     if [[ -n "${DOTFILES_USER:-}" ]]; then
         TARGET_USER="$DOTFILES_USER"
     elif [[ -z "$TARGET_USER" ]]; then
-        if [[ "$CLOUD_INIT_MODE" == "true" && "$EUID" -eq 0 ]]; then
+        # When running as root without cloud-init mode or explicit user specification,
+        # install for root itself rather than trying to find another user
+        if [[ "$EUID" -eq 0 && "$CLOUD_INIT_MODE" == "false" ]]; then
+            TARGET_USER="root"
+            log "INFO" "Running as root without --user or --cloud-init, installing for root user"
+        elif [[ "$CLOUD_INIT_MODE" == "true" && "$EUID" -eq 0 ]]; then
             # In cloud-init as root, try to detect the main user
             if [[ -n "${SUDO_USER:-}" ]]; then
                 TARGET_USER="$SUDO_USER"
