@@ -154,7 +154,14 @@ setup_target_user() {
     if [[ -n "${DOTFILES_HOME:-}" ]]; then
         TARGET_HOME="$DOTFILES_HOME"
     else
-        TARGET_HOME="$(get_user_home "$TARGET_USER")"
+        # Special handling for root user
+        if [[ "$TARGET_USER" == "root" ]]; then
+            # For root user, explicitly use /root instead of relying on get_user_home
+            # which might return incorrect values in some environments
+            TARGET_HOME="/root"
+        else
+            TARGET_HOME="$(get_user_home "$TARGET_USER")"
+        fi
     fi
 
     # Validate home directory exists or try to create it
@@ -840,15 +847,36 @@ user_exists() {
 # Cross-platform get user home directory
 get_user_home() {
     local user="$1"
+    
+    # Special handling for root user
+    if [[ "$user" == "root" ]]; then
+        echo "/root"
+        return 0
+    fi
+    
     if command_exists getent; then
         # Linux with getent
-        getent passwd "$user" | cut -d: -f6
+        local home_dir
+        home_dir=$(getent passwd "$user" 2>/dev/null | cut -d: -f6)
+        if [[ -n "$home_dir" ]]; then
+            echo "$home_dir"
+        else
+            # Fallback for root or if getent fails
+            eval echo "~$user" 2>/dev/null || echo "/home/$user"
+        fi
     elif [[ "$(uname)" == "Darwin" ]]; then
         # macOS
-        dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}'
+        local home_dir
+        home_dir=$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+        if [[ -n "$home_dir" ]]; then
+            echo "$home_dir"
+        else
+            # Fallback
+            eval echo "~$user" 2>/dev/null || echo "/Users/$user"
+        fi
     else
         # Fallback
-        eval echo "~$user"
+        eval echo "~$user" 2>/dev/null || echo "/home/$user"
     fi
 }
 
@@ -1380,34 +1408,32 @@ else
     safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
     safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
 
-# Check bash version for associative array support
-if (( BASH_VERSINFO[0] < 4 )); then
-    log "WARN" "Bash version ${BASH_VERSION} detected. Associative arrays require Bash 4+. Skipping Vim plugin installation."
-    log "INFO" "To enable Vim plugin installation, please install Bash 4+ (e.g., 'brew install bash' on macOS)"
-else
-    # Vim plugins configuration
-    declare -A vim_plugins=(
-        ["vim-airline"]="https://github.com/vim-airline/vim-airline"
-        ["nerdtree"]="https://github.com/preservim/nerdtree.git"
-        ["fzf"]="https://github.com/junegunn/fzf.vim.git"
-        ["vim-gitgutter"]="https://github.com/airblade/vim-gitgutter.git"
-        ["vim-fugitive"]="https://github.com/tpope/vim-fugitive.git"
-        ["vim-terraform"]="https://github.com/hashivim/vim-terraform.git"
-        ["vim-polyglot"]="https://github.com/sheerun/vim-polyglot"
-    )
+    # Check bash version for associative array support
+    if (( BASH_VERSINFO[0] < 4 )); then
+        log "WARN" "Bash version ${BASH_VERSION} detected. Associative arrays require Bash 4+. Skipping Vim plugin installation."
+        log "INFO" "To enable Vim plugin installation, please install Bash 4+ (e.g., 'brew install bash' on macOS)"
+    else
+        # Vim plugins configuration
+        declare -A vim_plugins=(
+            ["vim-airline"]="https://github.com/vim-airline/vim-airline"
+            ["nerdtree"]="https://github.com/preservim/nerdtree.git"
+            ["fzf"]="https://github.com/junegunn/fzf.vim.git"
+            ["vim-gitgutter"]="https://github.com/airblade/vim-gitgutter.git"
+            ["vim-fugitive"]="https://github.com/tpope/vim-fugitive.git"
+            ["vim-terraform"]="https://github.com/hashivim/vim-terraform.git"
+            ["vim-polyglot"]="https://github.com/sheerun/vim-polyglot"
+        )
 
-    # Vim themes configuration
-    declare -A vim_themes=(
-        ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
-    )
+        # Vim themes configuration
+        declare -A vim_themes=(
+            ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
+        )
 
-    # Install/update Vim plugins and themes
-    install_plugin_collection vim_plugins "$TARGET_HOME/.vim/pack/plugin/start" "Vim plugins"
-    install_plugin_collection vim_themes "$TARGET_HOME/.vim/pack/themes/start" "Vim themes"
-    log "INFO" "Vim plugins and themes set up successfully"
+        # Install/update Vim plugins and themes
+        install_plugin_collection vim_plugins "$TARGET_HOME/.vim/pack/plugin/start" "Vim plugins"
+        install_plugin_collection vim_themes "$TARGET_HOME/.vim/pack/themes/start" "Vim themes"
+        log "INFO" "Vim plugins and themes set up successfully"
     fi
-else
-    log "INFO" "Skipping Vim plugin installation due to missing home directory"
 fi
 
 log "INFO" "Setting up Zsh and Oh My Zsh..."
