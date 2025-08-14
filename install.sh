@@ -1073,6 +1073,20 @@ safe_mkdir_user() {
             safe_mkdir_user "$parent_dir"
         fi
         
+        # Enhanced cloud-init compatibility: wait for filesystem to be ready
+        if [[ "$CLOUD_INIT_MODE" == "true" ]]; then
+            local fs_attempts=3
+            local fs_attempt=1
+            while [[ $fs_attempt -le $fs_attempts ]]; do
+                if [[ -w "$parent_dir" ]] || [[ "$EUID" -eq 0 ]]; then
+                    break
+                fi
+                log "INFO" "Waiting for filesystem to be ready for directory creation (attempt $fs_attempt/$fs_attempts)"
+                sleep 1
+                ((fs_attempt++))
+            done
+        fi
+        
         # Create the directory - use sudo if running as root for a different user
         if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
             # Running as root for another user - create as that user
@@ -1462,11 +1476,40 @@ if [[ ! -d "$TARGET_HOME" ]]; then
     log "ERROR" "Target home directory does not exist: $TARGET_HOME"
     log "INFO" "Skipping tmux setup"
 else
-    safe_mkdir_user "$TARGET_HOME/.tmux"
-    safe_mkdir_user "$TARGET_HOME/.tmux/plugins"
-
-    git_clone_or_update_user "https://github.com/tmux-plugins/tpm" "$TARGET_HOME/.tmux/plugins/tpm"
-    log "INFO" "Tmux plugins set up successfully"
+    # Enhanced cloud-init compatibility with retry logic for filesystem operations
+    local max_attempts=5
+    local attempt=1
+    local tmux_setup_success=false
+    
+    while [[ $attempt -le $max_attempts ]] && [[ "$tmux_setup_success" == "false" ]]; do
+        if [[ $attempt -gt 1 ]]; then
+            log "INFO" "Retrying tmux setup (attempt $attempt/$max_attempts)..."
+            sleep 2
+        fi
+        
+        # Verify target home is writable
+        if [[ -w "$TARGET_HOME" ]] || [[ "$EUID" -eq 0 ]]; then
+            if safe_mkdir_user "$TARGET_HOME/.tmux" && safe_mkdir_user "$TARGET_HOME/.tmux/plugins"; then
+                if git_clone_or_update_user "https://github.com/tmux-plugins/tpm" "$TARGET_HOME/.tmux/plugins/tpm"; then
+                    tmux_setup_success=true
+                    log "INFO" "Tmux plugins set up successfully"
+                else
+                    log "WARN" "Git clone failed for tmux plugins (attempt $attempt/$max_attempts)"
+                fi
+            else
+                log "WARN" "Failed to create tmux directories (attempt $attempt/$max_attempts)"
+            fi
+        else
+            log "WARN" "Target home directory not writable: $TARGET_HOME (attempt $attempt/$max_attempts)"
+        fi
+        
+        ((attempt++))
+    done
+    
+    if [[ "$tmux_setup_success" == "false" ]]; then
+        log "ERROR" "Failed to set up tmux plugins after $max_attempts attempts"
+        log "INFO" "This may be due to filesystem mounting timing during cloud-init"
+    fi
 fi
 
 log "INFO" "Setting up Vim plugins and themes..."
@@ -1799,6 +1842,39 @@ log "INFO" "Setting Terraform version..."
 run_as_user_with_home "'$tfenv_dir/bin/tfenv' use" 2>&1 || log "WARN" "tfenv use failed or version already set"
 
 log "INFO" "Terraform version manager set up successfully"
+
+# Ensure all expected directories exist (fallback for cloud-init compatibility)
+if [[ "$CLOUD_INIT_MODE" == "true" ]]; then
+    log "INFO" "Ensuring all expected directories exist for cloud-init compatibility..."
+    
+    # Create directories that might be missing due to failed network operations or plugin installations
+    safe_mkdir_user "$TARGET_HOME/.azure"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-posh"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-posh/themes"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-zsh"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-zsh/custom"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-zsh/custom/plugins"
+    safe_mkdir_user "$TARGET_HOME/.tmux"
+    safe_mkdir_user "$TARGET_HOME/.tmux/plugins" 
+    safe_mkdir_user "$TARGET_HOME/.vim"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/themes"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
+    safe_mkdir_user "$TARGET_HOME/.vscode"
+    safe_mkdir_user "$TARGET_HOME/.vscode-insiders"
+    safe_mkdir_user "$TARGET_HOME/.vscode-server"
+    safe_mkdir_user "$TARGET_HOME/.vscode-server-insiders"
+    
+    # Create empty .z file if it doesn't exist (for z jump tool)
+    if [[ ! -f "$TARGET_HOME/.z" ]]; then
+        touch "$TARGET_HOME/.z"
+        set_ownership "$TARGET_HOME/.z"
+    fi
+    
+    log "INFO" "Cloud-init directory structure validation completed"
+fi
 
 # Commented out PowerShell module installation
 # This would require PowerShell to be installed and may need user interaction
