@@ -747,10 +747,25 @@ setup_claude_symlink() {
     # Find the Claude binary
     claude_binary_path=$(find_claude_binary)
     if [[ -z "$claude_binary_path" ]]; then
-        log "WARN" "Claude binary not found. Skipping symlink creation."
-        log "INFO" "If you install Claude later, you can create the symlink manually:"
-        log "INFO" "  ln -sf /path/to/claude ~/.local/bin/claude"
-        return 0
+        log "WARN" "Claude binary not found. Installing Claude CLI..."
+        
+        # Install Claude using the official installer
+        log "INFO" "Downloading and installing Claude CLI..."
+        if run_as_user_with_home "curl -fsSL https://claude.ai/install.sh | bash -s latest" >/dev/null 2>&1; then
+            log "INFO" "Claude CLI installed successfully"
+            
+            # Try to find the binary again after installation
+            claude_binary_path=$(find_claude_binary)
+            if [[ -z "$claude_binary_path" ]]; then
+                log "WARN" "Claude binary still not found after installation. It may be installed in a location not in PATH."
+                log "INFO" "You may need to restart your shell or add Claude to your PATH manually."
+                return 0
+            fi
+        else
+            log "ERROR" "Failed to install Claude CLI automatically"
+            log "INFO" "Please install Claude manually using: curl -fsSL https://claude.ai/install.sh | bash -s latest"
+            return 0
+        fi
     fi
     
     # If the symlink target is already ~/.local/bin/claude, don't create a recursive symlink
@@ -1360,20 +1375,14 @@ copy_claude_directory "$claude_source_dir" "$claude_dir" "Claude Code configurat
 set_claude_permissions "$claude_dir"
 
 # Setup MCP servers
-log "INFO" "Setting up MCP servers..."
 setup_mcp_servers
 
-log "INFO" "Claude Code configuration setup completed"
-
 # Setup Claude binary symlink
-log "INFO" "Setting up Claude binary symlink..."
 setup_claude_symlink
 
-log "INFO" "Setting up VSCode configuration..."
 vscode_dir="$TARGET_HOME/.vscode"
 
 if [[ -d "$vscode_dir" ]]; then
-    log "INFO" "Backing up existing $vscode_dir directory..."
     backup_ext=".backup.$(date +%Y%m%d_%H%M%S)"
     mv "$vscode_dir" "$vscode_dir$backup_ext"
     set_ownership "$vscode_dir$backup_ext" true
@@ -1382,7 +1391,6 @@ fi
 if [[ -d .vscode ]]; then
     cp -a .vscode "$vscode_dir"
     set_ownership "$vscode_dir" true
-    log "INFO" "VSCode configuration set up successfully"
 else
     log "WARN" "VSCode configuration directory not found in dotfiles"
 fi
