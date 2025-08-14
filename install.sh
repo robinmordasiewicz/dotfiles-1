@@ -40,10 +40,10 @@ SCRIPT_USER=""
 detect_execution_context() {
     SCRIPT_USER="$(whoami)"
 
-    # Check if running as root (typical in cloud-init)
+    # Don't automatically set CLOUD_INIT_MODE when running as root
+    # Let the command line arguments or environment variables determine this
     if [[ "$EUID" -eq 0 ]]; then
-        log "INFO" "Running as root - cloud-init or sudo execution detected"
-        CLOUD_INIT_MODE=true
+        log "INFO" "Running as root user"
     fi
 
     # Check for CI/automation indicators
@@ -115,7 +115,12 @@ setup_target_user() {
     if [[ -n "${DOTFILES_USER:-}" ]]; then
         TARGET_USER="$DOTFILES_USER"
     elif [[ -z "$TARGET_USER" ]]; then
-        if [[ "$CLOUD_INIT_MODE" == "true" && "$EUID" -eq 0 ]]; then
+        # When running as root without cloud-init mode or explicit user specification,
+        # install for root itself rather than trying to find another user
+        if [[ "$EUID" -eq 0 && "$CLOUD_INIT_MODE" == "false" ]]; then
+            TARGET_USER="root"
+            log "INFO" "Running as root without --user or --cloud-init, installing for root user"
+        elif [[ "$CLOUD_INIT_MODE" == "true" && "$EUID" -eq 0 ]]; then
             # In cloud-init as root, try to detect the main user
             if [[ -n "${SUDO_USER:-}" ]]; then
                 TARGET_USER="$SUDO_USER"
@@ -149,13 +154,33 @@ setup_target_user() {
     if [[ -n "${DOTFILES_HOME:-}" ]]; then
         TARGET_HOME="$DOTFILES_HOME"
     else
-        TARGET_HOME="$(get_user_home "$TARGET_USER")"
+        # Special handling for root user
+        if [[ "$TARGET_USER" == "root" ]]; then
+            # For root user, explicitly use /root instead of relying on get_user_home
+            # which might return incorrect values in some environments
+            TARGET_HOME="/root"
+        else
+            TARGET_HOME="$(get_user_home "$TARGET_USER")"
+        fi
     fi
 
-    # Validate home directory
+    # Validate home directory exists or try to create it
     if [[ ! -d "$TARGET_HOME" ]]; then
-        log "ERROR" "Home directory '$TARGET_HOME' does not exist"
-        exit 1
+        log "WARN" "Home directory '$TARGET_HOME' does not exist, attempting to create it"
+        # Try to create the home directory if running as root
+        if [[ "$EUID" -eq 0 ]]; then
+            mkdir -p "$TARGET_HOME" || {
+                log "ERROR" "Failed to create home directory '$TARGET_HOME'"
+                exit 1
+            }
+            # Set proper ownership for the home directory
+            chown "$TARGET_USER:$(id -gn "$TARGET_USER")" "$TARGET_HOME"
+            chmod 755 "$TARGET_HOME"
+            log "INFO" "Created home directory: $TARGET_HOME"
+        else
+            log "ERROR" "Home directory '$TARGET_HOME' does not exist and cannot create it without root privileges"
+            exit 1
+        fi
     fi
 
     log "INFO" "Target user: $TARGET_USER"
@@ -709,6 +734,13 @@ setup_claude_symlink() {
     local claude_binary_path
     local symlink_path="$TARGET_HOME/.local/bin/claude"
     
+    # Ensure TARGET_HOME exists before creating subdirectories
+    if [[ ! -d "$TARGET_HOME" ]]; then
+        log "ERROR" "Target home directory does not exist: $TARGET_HOME"
+        log "INFO" "Skipping Claude symlink setup"
+        return 1
+    fi
+    
     # Ensure ~/.local/bin exists
     safe_mkdir_user "$TARGET_HOME/.local/bin"
     
@@ -815,30 +847,60 @@ user_exists() {
 # Cross-platform get user home directory
 get_user_home() {
     local user="$1"
+    
+    # Special handling for root user
+    if [[ "$user" == "root" ]]; then
+        echo "/root"
+        return 0
+    fi
+    
     if command_exists getent; then
         # Linux with getent
-        getent passwd "$user" | cut -d: -f6
+        local home_dir
+        home_dir=$(getent passwd "$user" 2>/dev/null | cut -d: -f6)
+        if [[ -n "$home_dir" ]]; then
+            echo "$home_dir"
+        else
+            # Fallback for root or if getent fails
+            eval echo "~$user" 2>/dev/null || echo "/home/$user"
+        fi
     elif [[ "$(uname)" == "Darwin" ]]; then
         # macOS
-        dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}'
+        local home_dir
+        home_dir=$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+        if [[ -n "$home_dir" ]]; then
+            echo "$home_dir"
+        else
+            # Fallback
+            eval echo "~$user" 2>/dev/null || echo "/Users/$user"
+        fi
     else
         # Fallback
-        eval echo "~$user"
+        eval echo "~$user" 2>/dev/null || echo "/home/$user"
     fi
 }
 
-# Cross-platform get user by UID
+# Cross-platform get user by minimum UID
 get_user_by_uid() {
-    local uid="$1"
+    local min_uid="$1"
     if command_exists getent; then
-        # Linux with getent
-        getent passwd "$uid" | cut -d: -f1
+        # Linux with getent - find first user with UID >= min_uid
+        getent passwd | awk -F: -v min_uid="$min_uid" '$3 >= min_uid { print $1; exit }'
     elif [[ "$(uname)" == "Darwin" ]]; then
-        # macOS
-        dscl . -search /Users UniqueID "$uid" 2>/dev/null | head -1 | awk '{print $1}'
+        # macOS - find first user with UID >= min_uid
+        dscl . -list /Users UniqueID | awk -v min_uid="$min_uid" '$2 >= min_uid { print $1; exit }'
     else
-        # Fallback
-        id -un "$uid" 2>/dev/null
+        # Fallback - try to find a user with UID >= min_uid
+        # This is a best-effort approach when getent is not available
+        local users_found=""
+        for user in $(cut -d: -f1 /etc/passwd); do
+            local user_uid
+            user_uid=$(id -u "$user" 2>/dev/null || echo "0")
+            if [[ "$user_uid" -ge "$min_uid" ]]; then
+                echo "$user"
+                return 0
+            fi
+        done
     fi
 }
 
@@ -957,10 +1019,30 @@ safe_mkdir_user() {
 
     if [[ ! -d "$dir" ]]; then
         log "INFO" "Creating directory: $dir"
-        mkdir -p "$dir" || {
-            log "ERROR" "Failed to create directory: $dir"
-            return 3
-        }
+        
+        # Ensure parent directory exists first
+        local parent_dir="$(dirname "$dir")"
+        if [[ ! -d "$parent_dir" && "$parent_dir" != "/" && "$parent_dir" != "." ]]; then
+            safe_mkdir_user "$parent_dir"
+        fi
+        
+        # Create the directory - use sudo if running as root for a different user
+        if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
+            # Running as root for another user - create as that user
+            sudo -u "$TARGET_USER" mkdir -p "$dir" 2>/dev/null || {
+                # If that fails, create as root and then set ownership
+                mkdir -p "$dir" || {
+                    log "ERROR" "Failed to create directory: $dir"
+                    return 3
+                }
+            }
+        else
+            # Regular creation
+            mkdir -p "$dir" || {
+                log "ERROR" "Failed to create directory: $dir"
+                return 3
+            }
+        fi
 
         # Set proper ownership if running as root
         set_ownership "$dir" true
@@ -1311,42 +1393,57 @@ fi
 #cp .continue/config.json ~/.continue
 
 log "INFO" "Setting up tmux plugins..."
-safe_mkdir_user "$TARGET_HOME/.tmux/plugins"
-
-git_clone_or_update_user "https://github.com/tmux-plugins/tpm" "$TARGET_HOME/.tmux/plugins/tpm"
-log "INFO" "Tmux plugins set up successfully"
-
-log "INFO" "Setting up Vim plugins and themes..."
-safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
-safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
-
-# Check bash version for associative array support
-if (( BASH_VERSINFO[0] < 4 )); then
-    log "WARN" "Bash version ${BASH_VERSION} detected. Associative arrays require Bash 4+. Skipping Vim plugin installation."
-    log "INFO" "To enable Vim plugin installation, please install Bash 4+ (e.g., 'brew install bash' on macOS)"
+# Ensure TARGET_HOME exists and is accessible
+if [[ ! -d "$TARGET_HOME" ]]; then
+    log "ERROR" "Target home directory does not exist: $TARGET_HOME"
+    log "INFO" "Skipping tmux setup"
 else
-    # Vim plugins configuration
-    declare -A vim_plugins=(
-        ["vim-airline"]="https://github.com/vim-airline/vim-airline"
-        ["nerdtree"]="https://github.com/preservim/nerdtree.git"
-        ["fzf"]="https://github.com/junegunn/fzf.vim.git"
-        ["vim-gitgutter"]="https://github.com/airblade/vim-gitgutter.git"
-        ["vim-fugitive"]="https://github.com/tpope/vim-fugitive.git"
-        ["vim-terraform"]="https://github.com/hashivim/vim-terraform.git"
-        ["vim-polyglot"]="https://github.com/sheerun/vim-polyglot"
-    )
+    safe_mkdir_user "$TARGET_HOME/.tmux"
+    safe_mkdir_user "$TARGET_HOME/.tmux/plugins"
 
-    # Vim themes configuration
-    declare -A vim_themes=(
-        ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
-    )
-
-    # Install/update Vim plugins and themes
-    install_plugin_collection vim_plugins "$TARGET_HOME/.vim/pack/plugin/start" "Vim plugins"
-    install_plugin_collection vim_themes "$TARGET_HOME/.vim/pack/themes/start" "Vim themes"
+    git_clone_or_update_user "https://github.com/tmux-plugins/tpm" "$TARGET_HOME/.tmux/plugins/tpm"
+    log "INFO" "Tmux plugins set up successfully"
 fi
 
-log "INFO" "Vim plugins and themes set up successfully"
+log "INFO" "Setting up Vim plugins and themes..."
+if [[ ! -d "$TARGET_HOME" ]]; then
+    log "ERROR" "Target home directory does not exist: $TARGET_HOME"
+    log "INFO" "Skipping Vim setup"
+else
+    safe_mkdir_user "$TARGET_HOME/.vim"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/themes"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
+
+    # Check bash version for associative array support
+    if (( BASH_VERSINFO[0] < 4 )); then
+        log "WARN" "Bash version ${BASH_VERSION} detected. Associative arrays require Bash 4+. Skipping Vim plugin installation."
+        log "INFO" "To enable Vim plugin installation, please install Bash 4+ (e.g., 'brew install bash' on macOS)"
+    else
+        # Vim plugins configuration
+        declare -A vim_plugins=(
+            ["vim-airline"]="https://github.com/vim-airline/vim-airline"
+            ["nerdtree"]="https://github.com/preservim/nerdtree.git"
+            ["fzf"]="https://github.com/junegunn/fzf.vim.git"
+            ["vim-gitgutter"]="https://github.com/airblade/vim-gitgutter.git"
+            ["vim-fugitive"]="https://github.com/tpope/vim-fugitive.git"
+            ["vim-terraform"]="https://github.com/hashivim/vim-terraform.git"
+            ["vim-polyglot"]="https://github.com/sheerun/vim-polyglot"
+        )
+
+        # Vim themes configuration
+        declare -A vim_themes=(
+            ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
+        )
+
+        # Install/update Vim plugins and themes
+        install_plugin_collection vim_plugins "$TARGET_HOME/.vim/pack/plugin/start" "Vim plugins"
+        install_plugin_collection vim_themes "$TARGET_HOME/.vim/pack/themes/start" "Vim themes"
+        log "INFO" "Vim plugins and themes set up successfully"
+    fi
+fi
 
 log "INFO" "Setting up Zsh and Oh My Zsh..."
 oh_my_zsh_dir="$TARGET_HOME/.oh-my-zsh"
@@ -1395,38 +1492,51 @@ else
 fi
 
 log "INFO" "Setting up Zsh plugins..."
-safe_mkdir_user "$oh_my_zsh_dir/custom/plugins"
-
-# Check bash version for associative array support
-if (( BASH_VERSINFO[0] >= 4 )); then
-    # Zsh plugins configuration
-    declare -A zsh_plugins=(
-        ["zsh-autosuggestions"]="https://github.com/zsh-users/zsh-autosuggestions.git"
-        ["zsh-syntax-highlighting"]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
-        ["conda-zsh-completion"]="https://github.com/conda-incubator/conda-zsh-completion.git"
-        ["zsh-tfenv"]="https://github.com/cda0/zsh-tfenv.git"
-        ["zsh-aliases-lsd"]="https://github.com/yuhonas/zsh-aliases-lsd.git"
-    )
-
-    # Install/update Zsh plugins
-    install_plugin_collection zsh_plugins "$oh_my_zsh_dir/custom/plugins" "Zsh plugins"
+if [[ -d "$oh_my_zsh_dir" ]]; then
+    safe_mkdir_user "$oh_my_zsh_dir/custom/plugins"
 else
-    log "WARN" "Bash version ${BASH_VERSION} detected. Installing Zsh plugins individually without associative arrays."
-
-    # Install plugins individually
-    git_clone_or_update_user "https://github.com/zsh-users/zsh-autosuggestions.git" "$oh_my_zsh_dir/custom/plugins/zsh-autosuggestions"
-    git_clone_or_update_user "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$oh_my_zsh_dir/custom/plugins/zsh-syntax-highlighting"
-    git_clone_or_update_user "https://github.com/conda-incubator/conda-zsh-completion.git" "$oh_my_zsh_dir/custom/plugins/conda-zsh-completion"
-    git_clone_or_update_user "https://github.com/cda0/zsh-tfenv.git" "$oh_my_zsh_dir/custom/plugins/zsh-tfenv"
-    git_clone_or_update_user "https://github.com/yuhonas/zsh-aliases-lsd.git" "$oh_my_zsh_dir/custom/plugins/zsh-aliases-lsd"
+    log "WARN" "Oh My Zsh directory does not exist: $oh_my_zsh_dir"
+    log "INFO" "Skipping Zsh plugins setup"
 fi
 
-log "INFO" "Downloading Azure CLI completion..."
-az_completion_file="$oh_my_zsh_dir/custom/az.zsh"
-run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/Azure/azure-cli/dev/az.completion' -o '$az_completion_file'" || {
-    retry_network_operation run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/Azure/azure-cli/dev/az.completion' -o '$az_completion_file'"
-}
-set_ownership "$az_completion_file"
+if [[ -d "$oh_my_zsh_dir/custom/plugins" ]]; then
+    # Check bash version for associative array support
+    if (( BASH_VERSINFO[0] >= 4 )); then
+        # Zsh plugins configuration
+        declare -A zsh_plugins=(
+            ["zsh-autosuggestions"]="https://github.com/zsh-users/zsh-autosuggestions.git"
+            ["zsh-syntax-highlighting"]="https://github.com/zsh-users/zsh-syntax-highlighting.git"
+            ["conda-zsh-completion"]="https://github.com/conda-incubator/conda-zsh-completion.git"
+            ["zsh-tfenv"]="https://github.com/cda0/zsh-tfenv.git"
+            ["zsh-aliases-lsd"]="https://github.com/yuhonas/zsh-aliases-lsd.git"
+        )
+
+        # Install/update Zsh plugins
+        install_plugin_collection zsh_plugins "$oh_my_zsh_dir/custom/plugins" "Zsh plugins"
+    else
+        log "WARN" "Bash version ${BASH_VERSION} detected. Installing Zsh plugins individually without associative arrays."
+
+        # Install plugins individually
+        git_clone_or_update_user "https://github.com/zsh-users/zsh-autosuggestions.git" "$oh_my_zsh_dir/custom/plugins/zsh-autosuggestions"
+        git_clone_or_update_user "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$oh_my_zsh_dir/custom/plugins/zsh-syntax-highlighting"
+        git_clone_or_update_user "https://github.com/conda-incubator/conda-zsh-completion.git" "$oh_my_zsh_dir/custom/plugins/conda-zsh-completion"
+        git_clone_or_update_user "https://github.com/cda0/zsh-tfenv.git" "$oh_my_zsh_dir/custom/plugins/zsh-tfenv"
+        git_clone_or_update_user "https://github.com/yuhonas/zsh-aliases-lsd.git" "$oh_my_zsh_dir/custom/plugins/zsh-aliases-lsd"
+    fi
+else
+    log "INFO" "Skipping Zsh plugin installation - plugin directory does not exist"
+fi
+
+if [[ -d "$oh_my_zsh_dir/custom" ]]; then
+    log "INFO" "Downloading Azure CLI completion..."
+    az_completion_file="$oh_my_zsh_dir/custom/az.zsh"
+    run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/Azure/azure-cli/dev/az.completion' -o '$az_completion_file'" || {
+        retry_network_operation run_as_user_with_home "curl -fsSL 'https://raw.githubusercontent.com/Azure/azure-cli/dev/az.completion' -o '$az_completion_file'"
+    }
+    set_ownership "$az_completion_file"
+else
+    log "INFO" "Skipping Azure CLI completion - Oh My Zsh custom directory does not exist"
+fi
 
 log "INFO" "Zsh and Oh My Zsh set up successfully"
 
@@ -1463,14 +1573,24 @@ fi
 log "INFO" "Zsh plugins configured successfully"
 
 log "INFO" "Setting up Oh My Posh prompt theme..."
-safe_mkdir_user "$TARGET_HOME/.local/bin"
-safe_mkdir_user "$TARGET_HOME/.oh-my-posh/themes"
+if [[ -d "$TARGET_HOME" ]]; then
+    safe_mkdir_user "$TARGET_HOME/.local/bin"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-posh"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-posh/themes"
+else
+    log "ERROR" "Target home directory does not exist: $TARGET_HOME"
+    log "INFO" "Skipping Oh My Posh setup"
+fi
 
-log "INFO" "Installing Oh My Posh..."
-# Install Oh My Posh as the target user
-run_as_user_with_home "curl -s https://ohmyposh.dev/install.sh | bash -s -- -d '$TARGET_HOME/.local/bin' -t '$TARGET_HOME/.oh-my-posh/themes'" || {
-    retry_network_operation run_as_user_with_home "curl -s https://ohmyposh.dev/install.sh | bash -s -- -d '$TARGET_HOME/.local/bin' -t '$TARGET_HOME/.oh-my-posh/themes'"
-}
+if [[ -d "$TARGET_HOME" ]]; then
+    log "INFO" "Installing Oh My Posh..."
+    # Install Oh My Posh as the target user
+    run_as_user_with_home "curl -s https://ohmyposh.dev/install.sh | bash -s -- -d '$TARGET_HOME/.local/bin' -t '$TARGET_HOME/.oh-my-posh/themes'" || {
+        retry_network_operation run_as_user_with_home "curl -s https://ohmyposh.dev/install.sh | bash -s -- -d '$TARGET_HOME/.local/bin' -t '$TARGET_HOME/.oh-my-posh/themes'"
+    }
+else
+    log "INFO" "Skipping Oh My Posh installation due to missing home directory"
+fi
 
 log "INFO" "Installing Meslo font (non-interactive)..."
 oh_my_posh_bin="$TARGET_HOME/.local/bin/oh-my-posh"
@@ -1541,7 +1661,12 @@ if [[ "$(uname)" == "Linux" ]]; then
             lsd_dir="${lsd_file%.tar.gz}"
 
             # Ensure local bin directory exists
-            safe_mkdir_user "$TARGET_HOME/.local/bin"
+            if [[ -d "$TARGET_HOME" ]]; then
+                safe_mkdir_user "$TARGET_HOME/.local/bin"
+            else
+                log "ERROR" "Target home directory does not exist: $TARGET_HOME"
+                exit 3
+            fi
 
             # Move binary and set ownership
             mv "$lsd_dir/lsd" "$TARGET_HOME/.local/bin/" || {
