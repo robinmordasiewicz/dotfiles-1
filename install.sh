@@ -1075,34 +1075,41 @@ safe_mkdir_user() {
         
         # Enhanced cloud-init compatibility: wait for filesystem to be ready
         if [[ "$CLOUD_INIT_MODE" == "true" ]]; then
-            local fs_attempts=3
+            local fs_attempts=10  # Increased from 3 to 10 for better cloud-init compatibility
             local fs_attempt=1
             while [[ $fs_attempt -le $fs_attempts ]]; do
                 if [[ -w "$parent_dir" ]] || [[ "$EUID" -eq 0 ]]; then
                     break
                 fi
                 log "INFO" "Waiting for filesystem to be ready for directory creation (attempt $fs_attempt/$fs_attempts)"
-                sleep 1
+                sleep 2  # Increased from 1 to 2 seconds
                 ((fs_attempt++))
             done
+            
+            # Final check after waiting
+            if [[ $fs_attempt -gt $fs_attempts ]]; then
+                log "WARN" "Filesystem may not be fully ready after $fs_attempts attempts, proceeding anyway"
+            fi
         fi
         
         # Create the directory - use sudo if running as root for a different user
         if [[ "$EUID" -eq 0 ]] && [[ "$SCRIPT_USER" != "$TARGET_USER" ]]; then
             # Running as root for another user - create as that user
-            sudo -u "$TARGET_USER" mkdir -p "$dir" 2>/dev/null || {
+            if ! sudo -u "$TARGET_USER" mkdir -p "$dir" 2>&1; then
+                log "WARN" "Failed to create directory as $TARGET_USER, attempting as root: $dir"
                 # If that fails, create as root and then set ownership
-                mkdir -p "$dir" || {
-                    log "ERROR" "Failed to create directory: $dir"
+                if ! mkdir -p "$dir"; then
+                    log "ERROR" "Failed to create directory even as root: $dir"
                     return 3
-                }
-            }
+                fi
+                log "INFO" "Created directory as root, will set ownership: $dir"
+            fi
         else
             # Regular creation
-            mkdir -p "$dir" || {
+            if ! mkdir -p "$dir"; then
                 log "ERROR" "Failed to create directory: $dir"
                 return 3
-            }
+            fi
         fi
 
         # Set proper ownership if running as root
@@ -1315,6 +1322,53 @@ detect_execution_context
 
 # Setup target user and home directory
 setup_target_user
+
+# Create essential directories early to ensure they exist before any operations
+# This is particularly important for cloud-init contexts where operations may fail silently
+ensure_essential_directories() {
+    log "INFO" "Creating essential directories for user $TARGET_USER..."
+    
+    # Core directories that should always exist
+    safe_mkdir_user "$TARGET_HOME/.local"
+    safe_mkdir_user "$TARGET_HOME/.local/bin"
+    safe_mkdir_user "$TARGET_HOME/.cache"
+    safe_mkdir_user "$TARGET_HOME/.config"
+    
+    # Tool-specific directories
+    safe_mkdir_user "$TARGET_HOME/.azure"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-posh"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-posh/themes"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-zsh"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-zsh/custom"
+    safe_mkdir_user "$TARGET_HOME/.oh-my-zsh/custom/plugins"
+    safe_mkdir_user "$TARGET_HOME/.tfenv"
+    safe_mkdir_user "$TARGET_HOME/.tfenv/bin"
+    safe_mkdir_user "$TARGET_HOME/.tmux"
+    safe_mkdir_user "$TARGET_HOME/.tmux/plugins"
+    safe_mkdir_user "$TARGET_HOME/.vim"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/themes"
+    safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
+    safe_mkdir_user "$TARGET_HOME/.vscode"
+    safe_mkdir_user "$TARGET_HOME/.vscode-insiders"
+    safe_mkdir_user "$TARGET_HOME/.vscode-server"
+    safe_mkdir_user "$TARGET_HOME/.vscode-server-insiders"
+    safe_mkdir_user "$TARGET_HOME/.claude"
+    
+    # Create .z file for z jump tool
+    if [[ ! -f "$TARGET_HOME/.z" ]]; then
+        touch "$TARGET_HOME/.z"
+        set_ownership "$TARGET_HOME/.z"
+        log "INFO" "Created .z file for z jump tool"
+    fi
+    
+    log "INFO" "Essential directories created successfully"
+}
+
+# Ensure all essential directories exist early in the process
+ensure_essential_directories
 
 # Override HOME with target home if different user
 if [[ "$TARGET_USER" != "$SCRIPT_USER" ]]; then
@@ -1854,6 +1908,8 @@ if [[ "$CLOUD_INIT_MODE" == "true" ]]; then
     safe_mkdir_user "$TARGET_HOME/.oh-my-zsh"
     safe_mkdir_user "$TARGET_HOME/.oh-my-zsh/custom"
     safe_mkdir_user "$TARGET_HOME/.oh-my-zsh/custom/plugins"
+    safe_mkdir_user "$TARGET_HOME/.tfenv"
+    safe_mkdir_user "$TARGET_HOME/.tfenv/bin"
     safe_mkdir_user "$TARGET_HOME/.tmux"
     safe_mkdir_user "$TARGET_HOME/.tmux/plugins" 
     safe_mkdir_user "$TARGET_HOME/.vim"
@@ -1874,7 +1930,67 @@ if [[ "$CLOUD_INIT_MODE" == "true" ]]; then
     fi
     
     log "INFO" "Cloud-init directory structure validation completed"
+    
+    # Verify all expected directories were actually created
+    verify_directory_structure
 fi
+
+# Verify directory structure function
+verify_directory_structure() {
+    log "INFO" "Verifying directory structure..."
+    
+    local missing_dirs=()
+    local expected_dirs=(
+        ".azure"
+        ".cache"
+        ".claude"
+        ".config"
+        ".local"
+        ".local/bin"
+        ".oh-my-posh"
+        ".oh-my-posh/themes"
+        ".oh-my-zsh"
+        ".oh-my-zsh/custom"
+        ".oh-my-zsh/custom/plugins"
+        ".tfenv"
+        ".tfenv/bin"
+        ".tmux"
+        ".tmux/plugins"
+        ".vim"
+        ".vim/pack"
+        ".vim/pack/plugin"
+        ".vim/pack/plugin/start"
+        ".vim/pack/themes"
+        ".vim/pack/themes/start"
+        ".vscode"
+        ".vscode-insiders"
+        ".vscode-server"
+        ".vscode-server-insiders"
+    )
+    
+    for dir in "${expected_dirs[@]}"; do
+        if [[ ! -d "$TARGET_HOME/$dir" ]]; then
+            missing_dirs+=("$dir")
+            log "WARN" "Directory missing: $TARGET_HOME/$dir"
+        fi
+    done
+    
+    # Check for .z file
+    if [[ ! -f "$TARGET_HOME/.z" ]]; then
+        log "WARN" "File missing: $TARGET_HOME/.z"
+    fi
+    
+    if [[ ${#missing_dirs[@]} -gt 0 ]]; then
+        log "ERROR" "The following directories are missing: ${missing_dirs[*]}"
+        log "INFO" "Attempting to create missing directories..."
+        for dir in "${missing_dirs[@]}"; do
+            safe_mkdir_user "$TARGET_HOME/$dir"
+        done
+        log "INFO" "Retry completed for missing directories"
+    else
+        log "INFO" "All expected directories verified successfully"
+    fi
+}
 
 # Commented out PowerShell module installation
 # This would require PowerShell to be installed and may need user interaction
