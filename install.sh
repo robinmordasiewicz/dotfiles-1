@@ -2017,9 +2017,9 @@ log_environment_state "tmux setup"
 # Validate environment before proceeding with tmux setup
 if validate_plugin_environment "TMux plugins" "git"; then
     # Enhanced cloud-init compatibility with retry logic for filesystem operations
-    local max_attempts=5
-    local attempt=1
-    local tmux_setup_success=false
+    max_attempts=5
+    attempt=1
+    tmux_setup_success=false
     
     while [[ $attempt -le $max_attempts ]] && [[ "$tmux_setup_success" == "false" ]]; do
         if [[ $attempt -gt 1 ]]; then
@@ -2125,8 +2125,8 @@ if validate_plugin_environment "Vim plugins" "git" "bash4+"; then
     )
     
     # Install/update Vim plugins and themes with error checking
-        local vim_plugins_success=false
-        local vim_themes_success=false
+        vim_plugins_success=false
+        vim_themes_success=false
         
         if install_plugin_collection vim_plugins "$TARGET_HOME/.vim/pack/plugin/start" "Vim plugins"; then
             log "INFO" "Vim plugins installation completed successfully"
@@ -2162,7 +2162,7 @@ if [[ ! -d "$oh_my_zsh_dir" ]]; then
     log "INFO" "Installing Oh My Zsh..."
     
     # Enhanced Oh My Zsh installation with better error handling
-    local install_cmd='sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
+    install_cmd='sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
     
     if run_as_user_with_home "$install_cmd"; then
         log "INFO" "Oh My Zsh installation completed"
@@ -2262,7 +2262,7 @@ if validate_plugin_environment "Zsh plugins" "git" "oh-my-zsh"; then
         log "WARN" "Bash version ${BASH_VERSION} detected. Installing Zsh plugins individually without associative arrays."
 
         # Install plugins individually with error checking
-        local individual_plugins=(
+        individual_plugins=(
             "zsh-autosuggestions:https://github.com/zsh-users/zsh-autosuggestions.git"
             "zsh-syntax-highlighting:https://github.com/zsh-users/zsh-syntax-highlighting.git"
             "conda-zsh-completion:https://github.com/conda-incubator/conda-zsh-completion.git"
@@ -2270,14 +2270,14 @@ if validate_plugin_environment "Zsh plugins" "git" "oh-my-zsh"; then
             "zsh-aliases-lsd:https://github.com/yuhonas/zsh-aliases-lsd.git"
         )
         
-        local success_count=0
-        local total_plugins=${#individual_plugins[@]}
+        success_count=0
+        total_plugins=${#individual_plugins[@]}
         
         log "INFO" "Installing $total_plugins Zsh plugins individually (bash version fallback)"
         
         for plugin_info in "${individual_plugins[@]}"; do
             IFS=':' read -r plugin_name plugin_url <<< "$plugin_info"
-            local plugin_dir="$oh_my_zsh_dir/custom/plugins/$plugin_name"
+            plugin_dir="$oh_my_zsh_dir/custom/plugins/$plugin_name"
             
             log "INFO" "Installing Zsh plugin: $plugin_name"
             if git_clone_or_update_user "$plugin_url" "$plugin_dir"; then
