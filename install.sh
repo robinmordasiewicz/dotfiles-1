@@ -2426,7 +2426,16 @@ fi
 log "INFO" "Installing Meslo font (non-interactive)..."
 oh_my_posh_bin="$TARGET_HOME/.local/bin/oh-my-posh"
 if [[ -f "$oh_my_posh_bin" ]]; then
-    run_as_user_with_home "'$oh_my_posh_bin' font install Meslo" || log "WARN" "Font installation failed or already installed"
+    # Check if Meslo Nerd Font is already installed
+    if fc-list | grep -q "MesloLG.*Nerd Font"; then
+        log "INFO" "Meslo Nerd Font already installed, skipping installation"
+    else
+        if run_as_user_with_home "'$oh_my_posh_bin' font install Meslo"; then
+            log "INFO" "Meslo font installation completed successfully"
+        else
+            log "WARN" "Meslo font installation failed"
+        fi
+    fi
 else
     log "WARN" "oh-my-posh not found, skipping font installation"
 fi
