@@ -875,6 +875,74 @@ install_mcp_server_package() {
     fi
 }
 
+# Specialized Azure MCP server installation with proper dependency handling
+install_azure_mcp_server() {
+    local server_name="azure"
+    local main_package="@azure/mcp"
+    local platform_package="@azure/mcp-linux-x64"
+    
+    if ! command_exists npm; then
+        log "WARN" "npm not found, skipping Azure MCP server installation"
+        return 1
+    fi
+    
+    if [[ "$EUID" -eq 0 ]]; then
+        # Running as root - check if already installed globally
+        if is_npm_package_installed_globally "$main_package"; then
+            log "INFO" "Azure MCP server already installed globally, skipping"
+            return 0
+        fi
+        
+        log "INFO" "Installing Azure MCP server with enhanced dependency handling..."
+        
+        # Step 1: Clear npm cache to prevent corruption issues
+        log "INFO" "Clearing npm cache before Azure MCP installation..."
+        npm cache clear --force >/dev/null 2>&1 || log "WARN" "npm cache clear failed, continuing..."
+        
+        # Step 2: Install platform-specific package first (required dependency)
+        log "INFO" "Installing platform-specific package: $platform_package"
+        if npm install -g --unsafe-perm "$platform_package" >/dev/null 2>&1; then
+            log "INFO" "Platform-specific package installed successfully: $platform_package"
+        else
+            log "WARN" "Platform-specific package installation failed: $platform_package"
+            log "WARN" "Azure MCP installation will likely fail without this dependency"
+        fi
+        
+        # Step 3: Install main Azure MCP package
+        log "INFO" "Installing main Azure MCP package: $main_package"
+        if npm install -g --unsafe-perm "$main_package" >/dev/null 2>&1; then
+            log "INFO" "Successfully installed Azure MCP server globally"
+            
+            # Verify installation
+            if is_npm_package_installed_globally "$main_package"; then
+                log "INFO" "Azure MCP server installation verified successfully"
+                return 0
+            else
+                log "WARN" "Azure MCP server installation verification failed"
+                return 1
+            fi
+        else
+            log "WARN" "Failed to install Azure MCP server package globally despite enhanced fixes"
+            log "INFO" "Manual installation command: npm install -g --unsafe-perm $platform_package && npm install -g --unsafe-perm $main_package"
+            return 1
+        fi
+    else
+        # Running as non-root - check if already installed globally (system-wide)
+        if npm list -g --depth=0 "$main_package" >/dev/null 2>&1; then
+            log "INFO" "Azure MCP server already installed globally (system-wide)"
+            return 0
+        fi
+        
+        # Non-root users cannot install global packages
+        log "INFO" "Running as non-root user - cannot install global npm packages"
+        log "INFO" "Azure MCP server is not installed globally"
+        log "INFO" "To install Azure MCP server, run as root:"
+        log "INFO" "  sudo npm install -g --unsafe-perm $platform_package"
+        log "INFO" "  sudo npm install -g --unsafe-perm $main_package"
+        return 1
+    fi
+}
+
 # Generate MCP server configuration for Claude Code
 generate_mcp_config() {
     local claude_config="$TARGET_HOME/.claude/claude_desktop_config.json"
@@ -1015,8 +1083,8 @@ install_environment_specific_mcp_servers() {
     # Azure environment servers
     if detect_environment_condition "azure_environment"; then
         log "INFO" "Azure environment detected, installing Azure MCP servers..."
-        # Use the generic Azure MCP package which includes all platform-specific versions
-        install_mcp_server_package "azure" "@azure/mcp" || true
+        # Use specialized Azure MCP installation with proper dependency handling
+        install_azure_mcp_server || true
         log "INFO" "Microsoft Learn MCP server is available as HTTP endpoint (configured via MCP config files)"
     fi
     
