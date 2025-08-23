@@ -2211,7 +2211,7 @@ fi
 log "INFO" "Setting up Zsh and Oh My Zsh..."
 oh_my_zsh_dir="$TARGET_HOME/.oh-my-zsh"
 
-if [[ ! -d "$oh_my_zsh_dir" ]]; then
+if [[ ! -d "$oh_my_zsh_dir" ]] || [[ ! -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]]; then
     log "INFO" "Installing Oh My Zsh..."
     
     # Enhanced Oh My Zsh installation with better error handling
@@ -2245,7 +2245,7 @@ if [[ ! -d "$oh_my_zsh_dir" ]]; then
         log "ERROR" "Oh My Zsh installation failed - directory does not exist"
     fi
 else
-    log "INFO" "Oh My Zsh already installed"
+    log "INFO" "Oh My Zsh directory exists with core files"
     
     # Verify existing installation
     if [[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]]; then
