@@ -2498,14 +2498,46 @@ if [[ -f "$oh_my_posh_bin" ]]; then
     if fc-list | grep -q "MesloLG.*Nerd Font"; then
         log "INFO" "Meslo Nerd Font already installed, skipping installation"
     else
-        if run_as_user_with_home "'$oh_my_posh_bin' font install Meslo"; then
+        log "INFO" "Attempting Meslo font installation via oh-my-posh..."
+        # Attempt installation with detailed error handling
+        if run_as_user_with_home "'$oh_my_posh_bin' font install Meslo" 2>/dev/null; then
             log "INFO" "Meslo font installation completed successfully"
         else
-            log "WARN" "Meslo font installation failed"
+            local exit_code=$?
+            log "DEBUG" "oh-my-posh font install returned exit code $exit_code"
+            
+            # Verify if fonts were actually installed despite the error
+            if fc-list | grep -q "MesloLG.*Nerd Font"; then
+                log "INFO" "Meslo Nerd Fonts detected post-installation - installation succeeded"
+                log "INFO" "Note: oh-my-posh font installer may report errors in non-interactive environments"
+            else
+                log "WARN" "Meslo font installation failed - fonts not detected after installation attempt"
+                log "INFO" "Alternative: Install fonts manually via system package manager or direct download"
+                log "INFO" "Fallback command: apt install fonts-powerline fonts-firacode 2>/dev/null || true"
+                
+                # Attempt fallback installation via apt if available
+                if command -v apt >/dev/null 2>&1; then
+                    log "INFO" "Attempting fallback font installation via apt..."
+                    if apt install -y fonts-powerline fonts-firacode 2>/dev/null; then
+                        log "INFO" "Fallback font installation via apt completed successfully"
+                    else
+                        log "DEBUG" "Fallback apt installation also failed, continuing without specialized fonts"
+                    fi
+                fi
+            fi
         fi
     fi
 else
     log "WARN" "oh-my-posh not found, skipping font installation"
+    log "INFO" "Installing basic terminal fonts via package manager..."
+    # Attempt to install basic terminal fonts when oh-my-posh is not available
+    if command -v apt >/dev/null 2>&1; then
+        if apt install -y fonts-powerline fonts-firacode 2>/dev/null; then
+            log "INFO" "Basic terminal fonts installed successfully via apt"
+        else
+            log "DEBUG" "Basic font installation via apt failed, continuing without specialized fonts"
+        fi
+    fi
 fi
 
 log "INFO" "Copying powerlevel10k theme..."
