@@ -2279,47 +2279,77 @@ fi
 log "INFO" "Setting up Zsh and Oh My Zsh..."
 oh_my_zsh_dir="$TARGET_HOME/.oh-my-zsh"
 
+# Initialize Oh My Zsh installation success flag
+OH_MY_ZSH_INSTALL_SUCCESS=false
+
 if [[ ! -d "$oh_my_zsh_dir" ]] || [[ ! -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]]; then
     log "INFO" "Installing Oh My Zsh..."
     
-    # Enhanced Oh My Zsh installation with better error handling
+    # Enhanced Oh My Zsh installation with comprehensive error handling and validation
     install_cmd='sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
     
+    log "INFO" "Attempting Oh My Zsh installation..."
     if run_as_user_with_home "$install_cmd"; then
-        log "INFO" "Oh My Zsh installation completed"
+        log "INFO" "Oh My Zsh installation command completed successfully"
+        # Immediate validation after successful command
+        if [[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]] && [[ -d "$oh_my_zsh_dir/lib" ]]; then
+            log "INFO" "Oh My Zsh core files verified immediately after installation"
+            OH_MY_ZSH_INSTALL_SUCCESS=true
+        else
+            log "WARN" "Oh My Zsh installation command succeeded but core files missing - may need time to complete"
+            OH_MY_ZSH_INSTALL_SUCCESS=false
+        fi
     else
         log "WARN" "Initial Oh My Zsh installation failed, retrying with network retry logic..."
         if retry_network_operation run_as_user_with_home "$install_cmd"; then
             log "INFO" "Oh My Zsh installation completed on retry"
+            # Validate after retry attempt
+            if [[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]] && [[ -d "$oh_my_zsh_dir/lib" ]]; then
+                log "INFO" "Oh My Zsh core files verified after retry"
+                OH_MY_ZSH_INSTALL_SUCCESS=true
+            else
+                log "ERROR" "Oh My Zsh retry installation reported success but core files still missing"
+                OH_MY_ZSH_INSTALL_SUCCESS=false
+            fi
         else
             log "ERROR" "Oh My Zsh installation failed after multiple attempts"
             log "INFO" "Continuing without Oh My Zsh - some Zsh features may not be available"
+            OH_MY_ZSH_INSTALL_SUCCESS=false
             # Don't fail the entire script, just skip Zsh plugin installation
         fi
     fi
     
-    # Verify Oh My Zsh installation
+    # Enhanced Oh My Zsh installation verification
     if [[ -d "$oh_my_zsh_dir" ]]; then
         # Check for essential Oh My Zsh components
-        if [[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]]; then
-            log "INFO" "Oh My Zsh installation verified successfully"
+        if [[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]] && [[ -d "$oh_my_zsh_dir/lib" ]] && [[ -d "$oh_my_zsh_dir/plugins" ]]; then
+            log "INFO" "Oh My Zsh installation verified successfully - core components present"
+            # Set global flag for summary reporting
+            OH_MY_ZSH_INSTALL_SUCCESS=true
         else
             log "ERROR" "Oh My Zsh directory exists but core files are missing"
+            log "ERROR" "Missing components - oh-my-zsh.sh: $([[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]] && echo 'present' || echo 'missing'), lib/: $([[ -d "$oh_my_zsh_dir/lib" ]] && echo 'present' || echo 'missing'), plugins/: $([[ -d "$oh_my_zsh_dir/plugins" ]] && echo 'present' || echo 'missing')"
+            # Mark installation as failed for summary
+            OH_MY_ZSH_INSTALL_SUCCESS=false
         fi
         
         # Ensure proper ownership
         set_ownership "$oh_my_zsh_dir" true
     else
         log "ERROR" "Oh My Zsh installation failed - directory does not exist"
+        OH_MY_ZSH_INSTALL_SUCCESS=false
     fi
 else
-    log "INFO" "Oh My Zsh directory exists with core files"
+    log "INFO" "Oh My Zsh directory exists, verifying existing installation..."
     
-    # Verify existing installation
-    if [[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]]; then
-        log "INFO" "Existing Oh My Zsh installation verified"
+    # Verify existing installation with comprehensive checks
+    if [[ -f "$oh_my_zsh_dir/oh-my-zsh.sh" ]] && [[ -d "$oh_my_zsh_dir/lib" ]] && [[ -d "$oh_my_zsh_dir/plugins" ]]; then
+        log "INFO" "Existing Oh My Zsh installation verified - all core components present"
+        OH_MY_ZSH_INSTALL_SUCCESS=true
     else
-        log "WARN" "Oh My Zsh directory exists but core files may be missing"
+        log "WARN" "Oh My Zsh directory exists but core installation appears incomplete"
+        log "WARN" "Missing components - oh-my-zsh.sh: $([[ -f \"$oh_my_zsh_dir/oh-my-zsh.sh\" ]] && echo 'present' || echo 'missing'), lib/: $([[ -d \"$oh_my_zsh_dir/lib\" ]] && echo 'present' || echo 'missing'), plugins/: $([[ -d \"$oh_my_zsh_dir/plugins\" ]] && echo 'present' || echo 'missing')"
+        OH_MY_ZSH_INSTALL_SUCCESS=false
     fi
 fi
 
@@ -2866,17 +2896,21 @@ generate_installation_summary() {
         summary_items+=("✗ Vim Plugins: No plugins found")
     fi
     
-    # Zsh plugins
-    if [[ -d "$TARGET_HOME/.oh-my-zsh" ]]; then
+    # Zsh plugins - Enhanced validation using installation success flag
+    if [[ "${OH_MY_ZSH_INSTALL_SUCCESS:-false}" == "true" ]]; then
+        # Only count plugins if core Oh My Zsh installation was successful
         local zsh_plugin_count
         zsh_plugin_count=$(find "$TARGET_HOME/.oh-my-zsh/custom/plugins" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
         if [[ $zsh_plugin_count -gt 0 ]]; then
             summary_items+=("✓ Oh My Zsh: Installed with $zsh_plugin_count custom plugins")
         else
-            summary_items+=("! Oh My Zsh: Installed but no custom plugins found")
+            summary_items+=("✓ Oh My Zsh: Core installation successful, no custom plugins")
         fi
+    elif [[ -d "$TARGET_HOME/.oh-my-zsh" ]]; then
+        # Directory exists but core installation verification failed
+        summary_items+=("✗ Oh My Zsh: Directory exists but core installation incomplete")
     else
-        summary_items+=("✗ Oh My Zsh: Installation failed")
+        summary_items+=("✗ Oh My Zsh: Installation failed - directory not found")
     fi
     
     # tfenv
