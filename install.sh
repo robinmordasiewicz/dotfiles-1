@@ -1830,46 +1830,41 @@ git_clone_or_update_user() {
             return 1
         fi
         
-        # Enhanced git update with proper error handling
-        local update_cmd="cd '$target_dir' && {
-            # Verify we can fetch from remote
-            if git fetch origin --quiet 2>/dev/null; then
-                # Get the default branch from remote
-                default_branch=\$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || {
-                    # Fallback: try to determine default branch
-                    git remote show origin 2>/dev/null | grep 'HEAD branch' | cut -d' ' -f5 || echo 'main'
-                })
-                
-                log "INFO" "Updating to default branch: \$default_branch"
-                
-                # Ensure we're on the right branch
-                if git show-ref --verify --quiet refs/heads/\$default_branch; then
-                    git checkout \$default_branch --quiet 2>/dev/null || true
-                else
-                    # Create and checkout the default branch if it doesn't exist locally
-                    git checkout -b \$default_branch origin/\$default_branch --quiet 2>/dev/null || {
-                        # If that fails, try to checkout the remote default branch directly
-                        git checkout origin/\$default_branch --quiet 2>/dev/null || true
-                    }
-                fi
-                
-                # Now pull the latest changes
-                if git pull --quiet 2>/dev/null; then
-                    log "INFO" "Successfully updated repository"
-                else
-                    log "WARN" "Pull failed, attempting reset"
-                    git reset --hard origin/\$default_branch --quiet 2>/dev/null || {
-                        log "ERROR" "Failed to reset repository to origin/\$default_branch"
-                        exit 1
-                    }
-                fi
-            else
-                log "ERROR" "Failed to fetch from remote repository"
-                exit 1
+        # Enhanced git update with proper error handling - simplified for Bash 3 compatibility
+        # Create a simple update command that works with older Bash versions
+        local update_result
+        update_result=$(run_as_user_with_home "cd '$target_dir' && git fetch origin --quiet 2>&1")
+        
+        if [[ $? -eq 0 ]]; then
+            # Get the default branch
+            local default_branch
+            default_branch=$(run_as_user_with_home "cd '$target_dir' && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'" || echo "main")
+            
+            if [[ -z "$default_branch" ]]; then
+                default_branch="main"
             fi
-        }"
+            
+            log "INFO" "Updating to default branch: $default_branch"
+            
+            # Try to checkout and pull
+            if run_as_user_with_home "cd '$target_dir' && git checkout '$default_branch' --quiet 2>/dev/null && git pull --quiet 2>/dev/null"; then
+                log "INFO" "Successfully updated repository"
+            else
+                # If pull fails, try to reset
+                log "WARN" "Pull failed, attempting reset"
+                if run_as_user_with_home "cd '$target_dir' && git reset --hard 'origin/$default_branch' --quiet 2>/dev/null"; then
+                    log "INFO" "Repository reset to origin/$default_branch"
+                else
+                    log "ERROR" "Failed to update repository: $target_dir"
+                    return 1
+                fi
+            fi
+        else
+            log "ERROR" "Failed to fetch from remote repository: $target_dir"
+            return 1
+        fi
 
-        if run_as_user_with_home "$update_cmd"; then
+        if [[ $? -eq 0 ]]; then
             log "INFO" "Repository update completed successfully: $target_dir"
             return 0
         else
@@ -2218,7 +2213,7 @@ fi
 log "INFO" "Setting up Vim plugins and themes..."
 
 # Validate environment for Vim plugins
-if validate_plugin_environment "Vim plugins" "git" "bash4+"; then
+if validate_plugin_environment "Vim plugins" "git"; then
     safe_mkdir_user "$TARGET_HOME/.vim"
     safe_mkdir_user "$TARGET_HOME/.vim/pack"
     safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin"
@@ -2226,8 +2221,126 @@ if validate_plugin_environment "Vim plugins" "git" "bash4+"; then
     safe_mkdir_user "$TARGET_HOME/.vim/pack/plugin/start"
     safe_mkdir_user "$TARGET_HOME/.vim/pack/themes/start"
     
-    # Vim plugins configuration
-    declare -A vim_plugins=(
+    # Vim plugin and theme installation with Bash 3 compatibility
+    vim_plugins_success=false
+    vim_themes_success=false
+    
+    if (( BASH_VERSINFO[0] < 4 )); then
+        log "WARN" "Bash version ${BASH_VERSION} detected. Installing Vim plugins individually without associative arrays."
+        
+        # Install Vim plugins individually
+        vim_plugin_count=0
+        vim_plugin_success=0
+        
+        log "INFO" "Installing 7 Vim plugins individually (bash version fallback)"
+        
+        # vim-airline
+        ((vim_plugin_count++))
+        log "INFO" "Installing Vim plugin: vim-airline"
+        if git_clone_or_update_user "https://github.com/vim-airline/vim-airline" "$TARGET_HOME/.vim/pack/plugin/start/vim-airline"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/plugin/start/vim-airline" "vim-airline"; then
+                log "INFO" "Successfully installed and verified: vim-airline"
+                ((vim_plugin_success++))
+            fi
+        else
+            log "ERROR" "Failed to install Vim plugin: vim-airline"
+        fi
+        
+        # nerdtree
+        ((vim_plugin_count++))
+        log "INFO" "Installing Vim plugin: nerdtree"
+        if git_clone_or_update_user "https://github.com/preservim/nerdtree.git" "$TARGET_HOME/.vim/pack/plugin/start/nerdtree"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/plugin/start/nerdtree" "nerdtree"; then
+                log "INFO" "Successfully installed and verified: nerdtree"
+                ((vim_plugin_success++))
+            fi
+        else
+            log "ERROR" "Failed to install Vim plugin: nerdtree"
+        fi
+        
+        # fzf
+        ((vim_plugin_count++))
+        log "INFO" "Installing Vim plugin: fzf"
+        if git_clone_or_update_user "https://github.com/junegunn/fzf.vim.git" "$TARGET_HOME/.vim/pack/plugin/start/fzf"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/plugin/start/fzf" "fzf"; then
+                log "INFO" "Successfully installed and verified: fzf"
+                ((vim_plugin_success++))
+            fi
+        else
+            log "ERROR" "Failed to install Vim plugin: fzf"
+        fi
+        
+        # vim-gitgutter
+        ((vim_plugin_count++))
+        log "INFO" "Installing Vim plugin: vim-gitgutter"
+        if git_clone_or_update_user "https://github.com/airblade/vim-gitgutter.git" "$TARGET_HOME/.vim/pack/plugin/start/vim-gitgutter"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/plugin/start/vim-gitgutter" "vim-gitgutter"; then
+                log "INFO" "Successfully installed and verified: vim-gitgutter"
+                ((vim_plugin_success++))
+            fi
+        else
+            log "ERROR" "Failed to install Vim plugin: vim-gitgutter"
+        fi
+        
+        # vim-fugitive
+        ((vim_plugin_count++))
+        log "INFO" "Installing Vim plugin: vim-fugitive"
+        if git_clone_or_update_user "https://github.com/tpope/vim-fugitive.git" "$TARGET_HOME/.vim/pack/plugin/start/vim-fugitive"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/plugin/start/vim-fugitive" "vim-fugitive"; then
+                log "INFO" "Successfully installed and verified: vim-fugitive"
+                ((vim_plugin_success++))
+            fi
+        else
+            log "ERROR" "Failed to install Vim plugin: vim-fugitive"
+        fi
+        
+        # vim-terraform
+        ((vim_plugin_count++))
+        log "INFO" "Installing Vim plugin: vim-terraform"
+        if git_clone_or_update_user "https://github.com/hashivim/vim-terraform.git" "$TARGET_HOME/.vim/pack/plugin/start/vim-terraform"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/plugin/start/vim-terraform" "vim-terraform"; then
+                log "INFO" "Successfully installed and verified: vim-terraform"
+                ((vim_plugin_success++))
+            fi
+        else
+            log "ERROR" "Failed to install Vim plugin: vim-terraform"
+        fi
+        
+        # vim-polyglot
+        ((vim_plugin_count++))
+        log "INFO" "Installing Vim plugin: vim-polyglot"
+        if git_clone_or_update_user "https://github.com/sheerun/vim-polyglot" "$TARGET_HOME/.vim/pack/plugin/start/vim-polyglot" "--depth 1"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/plugin/start/vim-polyglot" "vim-polyglot"; then
+                log "INFO" "Successfully installed and verified: vim-polyglot"
+                ((vim_plugin_success++))
+            fi
+        else
+            log "ERROR" "Failed to install Vim plugin: vim-polyglot"
+        fi
+        
+        # Install vim-code-dark theme
+        log "INFO" "Installing Vim theme: vim-code-dark"
+        if git_clone_or_update_user "https://github.com/tomasiser/vim-code-dark" "$TARGET_HOME/.vim/pack/themes/start/vim-code-dark"; then
+            if verify_plugin_installation "$TARGET_HOME/.vim/pack/themes/start/vim-code-dark" "vim-code-dark"; then
+                log "INFO" "Successfully installed and verified: vim-code-dark theme"
+            fi
+        else
+            log "ERROR" "Failed to install Vim theme: vim-code-dark"
+        fi
+        
+        log "INFO" "Vim individual plugin installation completed: $vim_plugin_success/$vim_plugin_count successful"
+        
+        if [[ $vim_plugin_success -eq 0 ]]; then
+            log "ERROR" "All Vim plugins failed to install"
+            vim_plugins_success=false
+        else
+            vim_plugins_success=true
+        fi
+        vim_themes_success=true  # We only have one theme, and we tried to install it
+        
+    else
+        # Bash 4+ version with associative arrays
+        declare -A vim_plugins=(
             ["vim-airline"]="https://github.com/vim-airline/vim-airline"
             ["nerdtree"]="https://github.com/preservim/nerdtree.git"
             ["fzf"]="https://github.com/junegunn/fzf.vim.git"
@@ -2240,12 +2353,9 @@ if validate_plugin_environment "Vim plugins" "git" "bash4+"; then
         # Vim themes configuration
         declare -A vim_themes=(
             ["vim-code-dark"]="https://github.com/tomasiser/vim-code-dark"
-    )
-    
-    # Install/update Vim plugins and themes with error checking
-        vim_plugins_success=false
-        vim_themes_success=false
+        )
         
+        # Install/update Vim plugins and themes with error checking
         if install_plugin_collection vim_plugins "$TARGET_HOME/.vim/pack/plugin/start" "Vim plugins"; then
             log "INFO" "Vim plugins installation completed successfully"
             vim_plugins_success=true
@@ -2259,6 +2369,7 @@ if validate_plugin_environment "Vim plugins" "git" "bash4+"; then
         else
             log "ERROR" "Vim themes installation encountered errors"
         fi
+    fi
         
         if [[ "$vim_plugins_success" == "true" ]] && [[ "$vim_themes_success" == "true" ]]; then
             log "INFO" "All Vim plugins and themes set up successfully"
@@ -2690,6 +2801,15 @@ fi
 
 log "INFO" "Setting up Terraform version manager (tfenv)..."
 tfenv_dir="$TARGET_HOME/.tfenv"
+
+# Add GNU grep to PATH if available for tfenv to work properly
+if [[ -d "/opt/homebrew/opt/grep/libexec/gnubin" ]]; then
+    export PATH="/opt/homebrew/opt/grep/libexec/gnubin:$PATH"
+    log "INFO" "Added GNU grep to PATH for tfenv compatibility"
+elif [[ -d "/usr/local/opt/grep/libexec/gnubin" ]]; then
+    export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
+    log "INFO" "Added GNU grep to PATH for tfenv compatibility"
+fi
 
 # Check if we should skip tfenv installation (e.g., when pre-installed by cloud-init)
 if [[ "${SKIP_TFENV_INSTALL:-}" == "1" ]] && [[ -d "$tfenv_dir/.git" ]]; then
